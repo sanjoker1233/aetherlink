@@ -51,7 +51,7 @@ export function MessageDetail() {
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between p-4 border-b border-white/10">
-            <h3 className="text-sm font-semibold text-amber-400">Détail du message</h3>
+            <h3 className="text-sm font-semibold text-amber-400">Message detail</h3>
             <button onClick={() => setSelectedMessage(null)} className="text-gray-500 hover:text-white p-1">
               <X size={18} />
             </button>
@@ -100,7 +100,7 @@ export function MessageDetail() {
                     {msg.encrypted ? (
                       <><Lock size={11} className="text-amber-400" /> AES-256-GCM</>
                     ) : (
-                      <><Shield size={11} className="text-gray-500" /> Aucun</>
+                      <><Shield size={11} className="text-gray-500" /> None</>
                     )}
                   </span>
                 </div>

@@ -104,7 +104,7 @@ export function ShareIdentityModal({ open, onClose }: Props) {
                   Share
                 </GlassButton>
                 <GlassButton variant="default" size="sm" onClick={handleCopy} className="flex-1" icon={copied ? <Check size={14} className="text-neon-green" /> : <Copy size={14} />}>
-                  {copied ? 'Copié !' : 'Copy'}
+                  {copied ? 'Copied!' : 'Copy'}
                 </GlassButton>
                 <GlassButton variant="ghost" size="sm" onClick={handleDownload} icon={<Download size={14} />}>
                   QR

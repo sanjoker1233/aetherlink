@@ -62,7 +62,7 @@ export function SettingsPage() {
       <GlassCard hover={false}>
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-xl bg-amber-600/20 flex items-center justify-center"><Radio size={20} className="text-amber-600" /></div>
-          <div><h3 className="text-sm font-medium text-[#f5e6d3]">Network</h3><p className="text-xs text-gray-400">Préférences</p></div>
+          <div><h3 className="text-sm font-medium text-[#f5e6d3]">Network</h3><p className="text-xs text-gray-400">Preferences</p></div>
         </div>
         <div className="space-y-3">
           <label className="text-sm text-gray-300 block mb-2">Preferred network</label>

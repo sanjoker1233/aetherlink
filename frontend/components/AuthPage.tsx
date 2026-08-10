@@ -71,7 +71,7 @@ export function AuthPage() {
       setKeyPair(keyPair); setUser(user); setAuthenticated(true)
       if (token) api.setToken(token)
     } catch {
-      setError('Données d\'identité corrompues')
+      setError('Corrupt identity data')
     }
   }
 
@@ -108,7 +108,7 @@ export function AuthPage() {
               <User size={14} /> Nouveau
             </GlassButton>
             <GlassButton variant={mode === 'login' ? 'primary' : 'ghost'} size="sm" onClick={() => setMode('login')} className="flex-1">
-              <Key size={14} /> Connexion
+              <Key size={14} /> Sign in
             </GlassButton>
           </div>
 

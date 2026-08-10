@@ -43,7 +43,7 @@ export function ServerGuard({ children }: { children: React.ReactNode }) {
           <p className="text-sm text-gray-400 mb-6">
             {checking
               ? 'Attempting to connect to the CRYPTMessenger server...'
-              : 'Le serveur CRYPTMessenger est inaccessible.\nVérifications automatiques toutes les 10s.'}
+              : 'The CRYPTMessenger server is unreachable.\nAutomatic checks every 10s.'}
           </p>
           {offline && (
             <GlassButton variant="primary" onClick={check} icon={<RefreshCw size={14} />}>

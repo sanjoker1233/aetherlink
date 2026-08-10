@@ -97,7 +97,7 @@ export function NetworkDashboard() {
               <span className={`w-2 h-2 rounded-full ${
                 backendOk === null ? 'bg-gray-500' : backendOk ? 'bg-emerald-500' : 'bg-rose-500'
               }`} />
-              {backendOk === null ? 'Checking...' : backendOk ? 'Connected (:9090)' : 'Injoignable'}
+              {backendOk === null ? 'Checking...' : backendOk ? 'Connected (:9090)' : 'Unreachable'}
             </span>
           </div>
           <div className="flex items-center justify-between py-2 border-b border-white/5">
@@ -123,7 +123,7 @@ export function NetworkDashboard() {
           <Zap size={20} className="text-amber-400" />
           <div>
             <p className="text-sm font-medium text-[#f5e6d3]">Encryption de bout en bout</p>
-            <p className="text-xs text-gray-400">RSA-4096 (échange) + AES-256-GCM (messages)</p>
+            <p className="text-xs text-gray-400">RSA-4096 (exchange) + AES-256-GCM (messages)</p>
             <p className="text-[10px] text-gray-500 mt-1">Private key stored locally only • Not shared</p>
           </div>
         </div>
