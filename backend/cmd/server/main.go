@@ -282,8 +282,15 @@ func main() {
 		})
 
 		r.Post("/api/contacts", func(w http.ResponseWriter, r *http.Request) {
+			// Bind the contact to the AUTHENTICATED principal, never the
+			// client-supplied userId (was a write-IDOR: any user could add
+			// contacts under another user's ID). See audit finding #5.
+			userID := r.Header.Get("X-User-ID")
+			if userID == "" {
+				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
 			var body struct {
-				UserID      string `json:"userId"`
 				ContactID   string `json:"contactId"`
 				DisplayName string `json:"displayName"`
 				PublicKey   string `json:"publicKey"`
@@ -302,15 +309,10 @@ func main() {
 				"status":         "offline",
 				"createdAt":      time.Now().UnixMilli(),
 			}
-			store.SaveUser("contact:"+body.UserID+":"+body.ContactID, contact)
+			store.SaveUser("contact:"+userID+":"+body.ContactID, contact)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(contact)
-		})
-
-		r.Get("/api/contacts/{userID}", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]map[string]interface{}{})
 		})
 
 		// Network / bridge status — auth-required. Anonymous callers previously
@@ -361,8 +363,6 @@ func main() {
 		}
 	}
 	log.Printf("Loaded %d registered users from store", len(registeredUsers))
-
-	store.SaveUser("admin", map[string]interface{}{"name": "Admin", "created": "2024-01-01"})
 
 	// Bind localhost by default so accidental deploy doesn't expose plaintext HTTP
 	// on 0.0.0.0. Operators put a TLS-terminating proxy in front and/or set BIND=":9090".

@@ -12,3 +12,6 @@ frontend/out/
 # translation safety backup
 frontend_pre_english_backup/
 backend/aetherlink-server
+
+# go build default output (regenerate with: go build ./cmd/server/)
+backend/server
