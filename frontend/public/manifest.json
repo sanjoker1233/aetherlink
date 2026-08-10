@@ -1,0 +1,20 @@
+{
+  "name": "CRYPTMessenger",
+  "short_name": "CRYPTM",
+  "description": "Messagerie chiffrée multi-réseaux. LoRaWAN, Meshtastic, Satellite.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a1a",
+  "theme_color": "#0a0a1a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["communication", "security", "utilities"],
+  "lang": "fr"
+}

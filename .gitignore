@@ -1,0 +1,14 @@
+node_modules/
+.next/
+*.local
+.env
+.env.local
+backend/cryptmessenger-server
+frontend/out/
+/tmp/cryptmessenger-db.json
+*.log
+.DS_Store
+
+# translation safety backup
+frontend_pre_english_backup/
+backend/aetherlink-server
