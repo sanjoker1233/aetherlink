@@ -61,33 +61,47 @@ self.addEventListener('fetch', (event) => {
     return // let the browser handle it directly
   }
 
-  // Static shell: try cache first, fall back to network. On a successful
-  // network fetch of a same-origin, hashed static asset, populate the cache.
+  const url = new URL(request.url)
+
+  // Immutable, content-hashed assets: cache-first is safe (and fast).
+  const isImmutable =
+    url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/icons/')
+
+  if (isImmutable) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached
+        return fetch(request).then((response) => {
+          if (response && response.status === 200 && response.type === 'basic') {
+            const clone = response.clone()
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
+          }
+          return response
+        }).catch(() => Response.error())
+      })
+    )
+    return
+  }
+
+  // Everything else (navigations / HTML / manifest): network-first with
+  // stale-while-revalidate semantics, so a new deploy is picked up immediately
+  // instead of serving a permanently stale shell.
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached
-      return fetch(request).then((response) => {
-        // Only cache basic (same-origin), successful, cacheable responses.
-        if (
-          response &&
-          response.status === 200 &&
-          response.type === 'basic'
-        ) {
+    fetch(request)
+      .then((response) => {
+        if (response && response.status === 200 && response.type === 'basic') {
           const clone = response.clone()
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
         }
         return response
-      }).catch(() => {
-        // Offline fallback: serve the app shell for navigations only, so we
-        // don't mask a failed static asset as HTML. This avoids the previous
-        // behavior of returning '/' for ANY failed fetch (which hid real
-        // errors from the user).
-        if (request.mode === 'navigate') {
-          return caches.match('/')
-        }
-        return Response.error()
       })
-    })
+      .catch(() =>
+        caches.match(request).then((cached) => {
+          if (cached) return cached
+          if (request.mode === 'navigate') return caches.match('/')
+          return Response.error()
+        })
+      )
   )
 })
 

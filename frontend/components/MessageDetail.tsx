@@ -1,9 +1,11 @@
 'use client'
 
+import { useId } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Lock, Shield, Clock, User, Key, CheckCheck, AlertCircle, Send, FileText, Image, Trash2 } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import { GlassButton } from '@/components/ui/GlassButton'
+import { useDialogA11y } from '@/lib/useDialogA11y'
 
 export function MessageDetail() {
   const selectedMessage = useStore((s) => s.selectedMessage)
@@ -11,6 +13,8 @@ export function MessageDetail() {
   const setSelectedMessage = useStore((s) => s.setSelectedMessage)
   const conversations = useStore((s) => s.conversations)
   const removeMessage = useStore((s) => s.removeMessage)
+  const headingId = useId()
+  const dialogRef = useDialogA11y(!!selectedMessage, () => setSelectedMessage(null))
 
   if (!selectedMessage) return null
 
@@ -46,13 +50,18 @@ export function MessageDetail() {
           initial={{ y: 200, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 200, opacity: 0 }}
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={headingId}
+          tabIndex={-1}
           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
           className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl bg-[#1c1611] border border-white/10 p-0 overflow-hidden shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between p-4 border-b border-white/10">
-            <h3 className="text-sm font-semibold text-amber-400">Message detail</h3>
-            <button onClick={() => setSelectedMessage(null)} className="text-gray-500 hover:text-white p-1">
+            <h3 id={headingId} className="text-sm font-semibold text-amber-400">Message detail</h3>
+            <button onClick={() => setSelectedMessage(null)} aria-label="Close dialog" className="text-gray-500 hover:text-white p-1">
               <X size={18} />
             </button>
           </div>
@@ -146,7 +155,7 @@ export function MessageDetail() {
                   <span className="text-xs text-gray-400">Date</span>
                   <span className="text-xs font-medium flex items-center gap-1">
                     <Clock size={11} className="text-gray-500" />
-                    {new Date(msg.timestamp).toLocaleString(, {
+                    {new Date(msg.timestamp).toLocaleString(undefined, {
                       day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
                     })}
                   </span>

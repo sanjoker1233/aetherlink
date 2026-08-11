@@ -15,7 +15,7 @@ export function ChatList() {
     conversations, activeConversationId, setActiveConversation,
     contactRequests, user, contacts, setSidebarOpen,
   } = useStore()
-  const closeSidebar = () => { if (window.innerWidth < 1024) setSidebarOpen(false) }
+  const closeSidebar = () => { if (window.innerWidth < 768) setSidebarOpen(false) }
   const [showSearch, setShowSearch] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<any[]>([])
@@ -71,24 +71,26 @@ export function ChatList() {
               initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }} className="mt-2"
             >
-              <div className="flex gap-2 mb-2">
+              <form className="flex gap-2 mb-2" role="search" onSubmit={(e) => e.preventDefault()}>
                 <div className="relative flex-1">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                   <input
                     ref={searchRef}
                     autoFocus
                     value={query}
+                    type="search"
+                    aria-label="Search users by name or fingerprint"
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="Name or fingerprint..."
                     className="glass-input w-full text-sm pl-9 pr-8"
                   />
                   {query && (
-                    <button onClick={() => setQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2">
+                    <button type="button" aria-label="Clear search" onClick={() => setQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2">
                       <X size={14} className="text-gray-500" />
                     </button>
                   )}
                 </div>
-              </div>
+              </form>
 
               {loading && (
                 <div className="flex items-center justify-center py-4">

@@ -177,8 +177,19 @@ func (s *Store) load() {
 		log.Printf("Error loading database: %v", err)
 		return
 	}
-	s.users = store.Users
-	s.messages = store.Messages
+	// Guard against nil maps from a `{}`/truncated/partial DB file — writing
+	// to a nil map panics ("assignment to entry in nil map") and was remotely
+	// triggerable via /api/auth/register.
+	if store.Users != nil {
+		s.users = store.Users
+	} else {
+		s.users = make(map[string]map[string]interface{})
+	}
+	if store.Messages != nil {
+		s.messages = store.Messages
+	} else {
+		s.messages = make(map[string][]map[string]interface{})
+	}
 	log.Printf("Loaded %d users and %d conversations", len(s.users), len(s.messages))
 }
 

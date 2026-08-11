@@ -1,7 +1,7 @@
 import { fingerprint as e2eFingerprint, generateE2EKeys } from './e2e'
 
 export class CryptCrypto {
-  static async generateKeyPair(): Promise<{ publicKey: string; privateKey: string }> {
+  static async generateKeyPair(): Promise<{ publicKey: string; privateKey: CryptoKey }> {
     return generateE2EKeys()
   }
 

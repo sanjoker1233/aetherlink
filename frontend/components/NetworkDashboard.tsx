@@ -40,7 +40,7 @@ export function NetworkDashboard() {
 
   return (
     <div className="p-4 space-y-4 overflow-y-auto">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <GlassCard variant="primary">
           <div className="flex items-center gap-3">
             <Server size={20} className={backendOk === null ? 'text-gray-500' : backendOk ? 'text-emerald-500' : 'text-rose-500'} />

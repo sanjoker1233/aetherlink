@@ -6,6 +6,7 @@ import type {
   MeshNetwork, NetworkNode, AuthKeyPair, AppSettings, TabType, ContactRequest,
 } from './types'
 import { api } from './api'
+import { loadPrivateKey, clearPrivateKey, decryptMessage } from './e2e'
 
 interface AppState {
   user: User | null
@@ -26,9 +27,12 @@ interface AppState {
   activeTab: TabType
   isSidebarOpen: boolean
   serverAvailable: boolean | null
+  typing: Record<string, boolean>
   settings: AppSettings
+  hydrated: boolean
 
   setServerAvailable: (v: boolean | null) => void
+  setTyping: (conversationId: string, typing: boolean) => void
   setUser: (u: User | null) => void
   setKeyPair: (kp: AuthKeyPair | null) => void
   setAuthenticated: (v: boolean) => void
@@ -36,6 +40,7 @@ interface AppState {
   setContacts: (c: Contact[]) => void
   addContact: (c: Contact) => void
   removeContact: (id: string) => void
+  setContactVerified: (userId: string, verified: boolean) => void
 
   setContactRequests: (r: ContactRequest[]) => void
   addContactRequest: (r: ContactRequest) => void
@@ -49,6 +54,7 @@ interface AppState {
 
   addMessage: (convId: string, msg: Message) => void
   updateMessageStatus: (msgId: string, status: Message['status']) => void
+  markMessagesRead: (convId: string, ids: string[]) => void
   removeMessage: (convId: string, msgId: string) => void
 
   setMeshNetwork: (n: MeshNetwork) => void
@@ -59,84 +65,74 @@ interface AppState {
   setActiveTab: (t: TabType) => void
   setSidebarOpen: (v: boolean) => void
   updateSettings: (s: Partial<AppSettings>) => void
-  hydrate: () => void
+  hydrate: () => Promise<void>
   logout: () => void
+}
+
+// scheduleDisappear deletes a message once its TTL elapses. An ephemeral
+// message (Snapchat-style) carries its OWN ttl set by the sender, which the
+// recipient honors regardless of their own disappearing-message setting.
+// Purely client-side; no server round-trip.
+const scheduleDisappear = (convId: string, msg: Message) => {
+  const settings = useStore.getState().settings
+  const ttl = msg.ephemeral && msg.ttl && msg.ttl > 0
+    ? msg.ttl
+    : settings.disappearingTTL
+  if (ttl <= 0) return
+  const remaining = ttl - (Date.now() - msg.timestamp)
+  if (remaining <= 0) {
+    useStore.getState().removeMessage(convId, msg.id)
+  } else {
+    setTimeout(() => useStore.getState().removeMessage(convId, msg.id), remaining)
+  }
 }
 
 const defaultSettings: AppSettings = {
   theme: 'dark', preferredNetwork: 'hybrid', autoSwitchNetwork: true,
   encryptionEnabled: true, notificationsEnabled: true, offlineMode: false,
-  decryptDuration: 0,
+  decryptDuration: 0, disappearingTTL: 0,
 }
+
+// SECURITY: never persist decrypted message bodies. `plainContent` is dropped
+// on the way to localStorage and re-derived in memory at hydration time.
+const stripPlain = (_key: string, value: any) => (_key === 'plainContent' ? undefined : value)
 
 const saveToStorage = (data: Partial<AppState>) => {
   if (typeof window === 'undefined') return
   try {
-    const toSave: any = {}
+    const prevRaw = localStorage.getItem('crypt_state')
+    const prev = prevRaw ? JSON.parse(prevRaw) : {}
+    const toSave: any = { ...prev }
     if (data.contacts) toSave.contacts = data.contacts
     if (data.conversations) toSave.conversations = data.conversations
     if (data.messages) toSave.messages = data.messages
     if (data.contactRequests) toSave.contactRequests = data.contactRequests
-    localStorage.setItem('crypt_state', JSON.stringify(toSave))
+    localStorage.setItem('crypt_state', JSON.stringify(toSave, stripPlain))
   } catch {}
 }
-
-function initFromStorage() {
-  if (typeof window === 'undefined') return {}
-  try {
-    const raw = localStorage.getItem('crypt_identity')
-    if (raw) {
-      const { user, keyPair, token } = JSON.parse(raw)
-      if (user && keyPair) {
-        if (token) api.setToken(token)
-        return { user, keyPair, isAuthenticated: true }
-      }
-    }
-  } catch {}
-  return {}
-}
-
-function initStateFromStorage() {
-  if (typeof window === 'undefined') return {}
-  try {
-    const raw = localStorage.getItem('crypt_state')
-    if (raw) return JSON.parse(raw)
-  } catch {}
-  return {}
-}
-
-function initSettingsFromStorage() {
-  if (typeof window === 'undefined') return {}
-  try {
-    const raw = localStorage.getItem('crypt_settings')
-    if (raw) return JSON.parse(raw)
-  } catch {}
-  return {}
-}
-
-const initial = initFromStorage()
-const initialSaved = initStateFromStorage()
-const initialSettings = initSettingsFromStorage()
 
 export const useStore = create<AppState>((set, get) => ({
-  user: initial.user || null,
-  keyPair: initial.keyPair || null,
-  isAuthenticated: initial.isAuthenticated || false,
+  // Start from empty defaults so server and first client render match.
+  user: null,
+  keyPair: null,
+  isAuthenticated: false,
+  hydrated: false,
 
-  contacts: initialSaved.contacts || [],
-  contactRequests: initialSaved.contactRequests || [],
-  conversations: initialSaved.conversations || [],
+  contacts: [],
+  contactRequests: [],
+  conversations: [],
   activeConversationId: null,
   selectedMessage: null,
-  messages: initialSaved.messages || {},
+  messages: {},
 
   meshNetwork: { nodes: [], links: [], activeType: 'internet', isSimulated: false },
   activeNetwork: 'internet',
   networkStrength: 100,
   serverAvailable: null,
+  typing: {},
   activeTab: 'chats',
   isSidebarOpen: true,
-  settings: { ...defaultSettings, ...initialSettings },
+  settings: { ...defaultSettings },
 
   setUser: (user) => set({ user }),
   setKeyPair: (kp) => set({ keyPair: kp }),
@@ -159,6 +155,12 @@ export const useStore = create<AppState>((set, get) => ({
     convsToRemove.forEach((cid) => { delete messages[cid] })
     set({ contacts, conversations, messages })
     saveToStorage({ contacts, conversations, messages })
+  },
+  setContactVerified: (userId, verified) => {
+    const contacts = get().contacts.map((c) =>
+      c.userId === userId ? { ...c, verified } : c
+    )
+    set({ contacts }); saveToStorage({ contacts })
   },
 
   setContactRequests: (r) => set({ contactRequests: r }),
@@ -196,6 +198,7 @@ export const useStore = create<AppState>((set, get) => ({
     )
     set({ messages, conversations })
     saveToStorage({ messages, conversations })
+    scheduleDisappear(convId, msg)
   },
   updateMessageStatus: (msgId, status) => {
     const messages = { ...get().messages }
@@ -203,6 +206,23 @@ export const useStore = create<AppState>((set, get) => ({
       messages[key] = messages[key].map((m) => m.id === msgId ? { ...m, status } : m)
     }
     set({ messages }); saveToStorage({ messages })
+  },
+  markMessagesRead: (convId, ids) => {
+    if (ids.length === 0) return
+    const idSet = new Set(ids)
+    const messages = { ...get().messages }
+    if (!messages[convId]) return
+    let changed = false
+    messages[convId] = messages[convId].map((m) => {
+      if (idSet.has(m.id) && !m.read) {
+        changed = true
+        return { ...m, read: true, readAt: Date.now() }
+      }
+      return m
+    })
+    if (changed) {
+      set({ messages }); saveToStorage({ messages })
+    }
   },
   removeMessage: (convId, msgId) => {
     const messages = { ...get().messages }
@@ -224,39 +244,79 @@ export const useStore = create<AppState>((set, get) => ({
   setActiveTab: (t) => set({ activeTab: t }),
   setSidebarOpen: (v) => set({ isSidebarOpen: v }),
   setServerAvailable: (v) => set({ serverAvailable: v }),
+  setTyping: (conversationId, typing) => {
+    set((s) => ({ typing: { ...s.typing, [conversationId]: typing } }))
+    if (typing) {
+      // Auto-clear after a short grace period in case the peer stops sending.
+      setTimeout(() => {
+        const cur = useStore.getState().typing[conversationId]
+        if (cur) set((s) => ({ typing: { ...s.typing, [conversationId]: false } }))
+      }, 3000)
+    }
+  },
   updateSettings: (s) => {
     const settings = { ...get().settings, ...s }
     set({ settings })
     try { localStorage.setItem('crypt_settings', JSON.stringify(settings)) } catch {}
   },
 
-  hydrate: () => {
+  hydrate: async () => {
     if (typeof window === 'undefined') return
     try {
-      const raw = localStorage.getItem('crypt_identity')
-      if (raw) {
-        const { user, keyPair, token } = JSON.parse(raw)
-        if (user && keyPair) {
-          if (token) api.setToken(token)
-          set({ user, keyPair, isAuthenticated: true })
-        }
-      }
-      const stateRaw = localStorage.getItem('crypt_state')
-      if (stateRaw) {
-        const saved = JSON.parse(stateRaw)
-        set({
-          contacts: saved.contacts || [],
-          contactRequests: saved.contactRequests || [],
-          conversations: saved.conversations || [],
-          messages: saved.messages || {},
-        })
-      }
       const settingsRaw = localStorage.getItem('crypt_settings')
       if (settingsRaw) {
         const saved = JSON.parse(settingsRaw)
         set({ settings: { ...get().settings, ...saved } })
       }
+
+      const stateRaw = localStorage.getItem('crypt_state')
+      let messages: Record<string, Message[]> = {}
+      if (stateRaw) {
+        const saved = JSON.parse(stateRaw)
+        messages = saved.messages || {}
+        set({
+          contacts: saved.contacts || [],
+          contactRequests: saved.contactRequests || [],
+          conversations: saved.conversations || [],
+          messages,
+        })
+      }
+
+      // Identity: only the PUBLIC half lives in localStorage. The private key
+      // is a non-extractable CryptoKey handle kept in IndexedDB.
+      const raw = localStorage.getItem('crypt_identity')
+      const privateKey = await loadPrivateKey()
+      if (raw && privateKey) {
+        const parsed = JSON.parse(raw)
+        const user = parsed.user
+        const publicKey = parsed.publicKey || user?.publicKey || ''
+        const fingerprint = parsed.fingerprint || user?.publicKeyFingerprint || ''
+        if (user && publicKey) {
+          set({
+            user,
+            keyPair: { publicKey, privateKey, fingerprint },
+            isAuthenticated: true,
+          })
+          // Re-decrypt persisted ciphertexts into memory only.
+          const rebuilt: Record<string, Message[]> = {}
+          for (const [cid, list] of Object.entries(messages)) {
+            rebuilt[cid] = await Promise.all(list.map(async (m) => {
+              if (!m.encrypted || !m.encryptedKey || !m.iv) return m
+              try {
+                const plainContent = await decryptMessage(m.iv, m.encryptedKey, m.content, privateKey)
+                return { ...m, plainContent }
+              } catch { return m }
+            }))
+          }
+          set({ messages: rebuilt })
+          // Honor disappearing-message TTL for messages restored from storage.
+          for (const [cid, list] of Object.entries(rebuilt)) {
+            for (const m of list) scheduleDisappear(cid, m)
+          }
+        }
+      }
     } catch {}
+    set({ hydrated: true })
   },
 
   logout: () => {
@@ -265,6 +325,7 @@ export const useStore = create<AppState>((set, get) => ({
       localStorage.removeItem('crypt_token')
       localStorage.removeItem('crypt_state')
     }
+    void clearPrivateKey()
     api.clearToken()
     set({
       user: null, keyPair: null, isAuthenticated: false,

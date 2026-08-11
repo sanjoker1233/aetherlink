@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import { clsx } from 'clsx'
 import { Radio, Satellite, Wifi, Signal } from 'lucide-react'
 import { useStore } from '@/lib/store'
+import { api } from '@/lib/api'
 import type { NetworkType } from '@/lib/types'
 
 const networkConfig: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
@@ -24,8 +25,10 @@ export function NetworkBar() {
 
   useEffect(() => {
     const check = () => {
-      fetch('http://localhost:9090/health', { signal: AbortSignal.timeout(3000) })
-        .then(r => r.ok ? setBackendOk(true) : setBackendOk(false))
+      // Use the shared API client so NEXT_PUBLIC_API_URL (and the CSP
+      // connect-src allowlist) are respected instead of a hardcoded origin.
+      api.health()
+        .then(() => setBackendOk(true))
         .catch(() => setBackendOk(false))
     }
     check()

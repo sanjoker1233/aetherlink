@@ -10,12 +10,12 @@ interface AvatarProps {
 }
 
 export function Avatar({ name, size = 'md', status, src }: AvatarProps) {
-  const initials = name
+  const initials = (name || '')
     .split(/[\s-]+/)
-    .map((n) => n[0])
+    .map((n) => n[0] || '')
     .join('')
     .toUpperCase()
-    .slice(0, 2)
+    .slice(0, 2) || '?'
 
   const sizeClasses = {
     sm: 'w-8 h-8 text-xs',
@@ -36,7 +36,7 @@ export function Avatar({ name, size = 'md', status, src }: AvatarProps) {
       <div className="relative shrink-0">
         <img
           src={src}
-          alt={name}
+          alt={name || 'Avatar'}
           className={clsx('rounded-full object-cover', sizeClasses[size])}
         />
         {status && (

@@ -239,3 +239,9 @@
   from { opacity: 0; transform: translateY(-10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* Full-height app shell that respects mobile browser chrome (dynamic viewport). */
+.app-shell {
+  height: 100vh;
+  height: 100dvh;
+}

@@ -20,6 +20,7 @@ type Store interface {
 	SavePendingAccept(requestID string, data map[string]interface{})
 	GetPendingAccepts(userID string) []map[string]interface{}
 	RemovePendingAccept(requestID string)
+	GetUser(userID string) map[string]interface{}
 }
 
 // allowedWSOrigins is populated at package init from ALLOWED_ORIGINS.
@@ -86,6 +87,14 @@ type WSPayload struct {
 	EncryptedKey string `json:"encryptedKey,omitempty"`
 	IV           string `json:"iv,omitempty"`
 
+	// Ephemeral messages (Snapchat-style) carry a server-agnostic TTL the
+	// recipient honors regardless of their own disappearing-message setting.
+	Ephemeral bool  `json:"ephemeral,omitempty"`
+	TTL       int64 `json:"ttl,omitempty"`
+
+	// MessageIDs lists the messages a read-receipt ("Vu") applies to.
+	MessageIDs []string `json:"messageIds,omitempty"`
+
 	Token string `json:"token,omitempty"`
 }
 
@@ -100,6 +109,16 @@ type Client struct {
 	send   chan []byte
 	userID string
 	hubID  string
+	// done is closed exactly once (via close()) when the client is retired.
+	// Producers select on it so they never write to / close a dead channel.
+	done      chan struct{}
+	closeOnce sync.Once
+}
+
+// close retires the client. Safe to call from multiple goroutines.
+// It never closes c.send — only writePump does that.
+func (c *Client) close() {
+	c.closeOnce.Do(func() { close(c.done) })
 }
 
 type Hub struct {
@@ -131,7 +150,7 @@ func (h *Hub) Run() {
 			h.mu.Lock()
 			old, exists := h.clients[client.userID]
 			if exists && old != client {
-				close(old.send)
+				old.close()
 				old.conn.Close()
 			}
 			h.clients[client.userID] = client
@@ -176,7 +195,7 @@ func (h *Hub) Run() {
 			h.mu.Lock()
 			if cur, ok := h.clients[client.userID]; ok && cur == client {
 				delete(h.clients, client.userID)
-				close(client.send)
+				client.close()
 			}
 			h.mu.Unlock()
 			log.Printf("[WS] %s disconnected", client.userID)
@@ -204,9 +223,18 @@ func (h *Hub) route(msg WSMessage) {
 		if targetID == "" {
 			return
 		}
+		if !h.authorizedRecipient(msg.Payload.SenderID, targetID, msg.Payload.ConversationID) {
+			log.Printf("[WS] dropping %q from %s to unauthorized recipient %s", msg.Type, msg.Payload.SenderID, targetID)
+			return
+		}
 		h.sendToUser(targetID, "message", msg.Payload)
 
 	case "contact_request":
+		// A contact request is by definition sent to a non-contact, so it is
+		// not membership-gated; sender identity is already server-enforced.
+		if msg.Payload.ToUserID == "" || msg.Payload.FromUserID == "" {
+			return
+		}
 		if !h.sendToUser(msg.Payload.ToUserID, "contact_request", msg.Payload) && h.store != nil {
 			h.store.SavePendingContactRequest(msg.Payload.ContactID, map[string]interface{}{
 				"id": msg.Payload.ContactID, "fromUserId": msg.Payload.FromUserID,
@@ -216,6 +244,11 @@ func (h *Hub) route(msg WSMessage) {
 		}
 
 	case "contact_accept":
+		if !h.authorizedRecipient(msg.Payload.FromUserID, msg.Payload.ToUserID, msg.Payload.ConversationID) &&
+			!h.hasPendingRequestFrom(msg.Payload.FromUserID, msg.Payload.ToUserID) {
+			log.Printf("[WS] dropping contact_accept from %s to unauthorized recipient %s", msg.Payload.FromUserID, msg.Payload.ToUserID)
+			return
+		}
 		if !h.sendToUser(msg.Payload.ToUserID, "contact_accept", msg.Payload) && h.store != nil {
 			h.store.SavePendingAccept(msg.Payload.ContactID, map[string]interface{}{
 				"id": msg.Payload.ContactID, "fromUserId": msg.Payload.FromUserID,
@@ -226,11 +259,97 @@ func (h *Hub) route(msg WSMessage) {
 		}
 
 	case "user_info_request":
+		if !h.authorizedRecipient(msg.Payload.FromUserID, msg.Payload.ToUserID, msg.Payload.ConversationID) {
+			log.Printf("[WS] dropping user_info_request from %s to unauthorized recipient %s", msg.Payload.FromUserID, msg.Payload.ToUserID)
+			return
+		}
 		h.sendToUser(msg.Payload.ToUserID, "user_info_request", msg.Payload)
 
 	case "user_info":
+		if !h.authorizedRecipient(msg.Payload.FromUserID, msg.Payload.ToUserID, msg.Payload.ConversationID) {
+			log.Printf("[WS] dropping user_info from %s to unauthorized recipient %s", msg.Payload.FromUserID, msg.Payload.ToUserID)
+			return
+		}
 		h.sendToUser(msg.Payload.ToUserID, "user_info", msg.Payload)
+
+	case "typing":
+		// Relay typing presence to the conversation peer only (never broadcast
+		// to every connected client — that would leak who is typing to anyone).
+		if msg.Payload.ConversationID == "" || msg.Payload.RecipientID == "" {
+			return
+		}
+		if !h.authorizedRecipient(msg.Payload.SenderID, msg.Payload.RecipientID, msg.Payload.ConversationID) {
+			return
+		}
+		h.sendToUser(msg.Payload.RecipientID, "typing", msg.Payload)
+
+	case "message_read":
+		// Read receipt ("Vu"). The reader is the authenticated user
+		// (SenderID, overwritten in client.readPump); the receipt is relayed
+		// to the ORIGINAL sender (RecipientID) so they learn their message
+		// was seen. Gated to conversation members so a reader can only flag
+		// receipts for people they actually share a conversation with.
+		if msg.Payload.ConversationID == "" || len(msg.Payload.MessageIDs) == 0 {
+			return
+		}
+		if !h.authorizedRecipient(msg.Payload.SenderID, msg.Payload.RecipientID, msg.Payload.ConversationID) {
+			log.Printf("[WS] dropping message_read from %s to non-member %s", msg.Payload.SenderID, msg.Payload.RecipientID)
+			return
+		}
+		h.sendToUser(msg.Payload.RecipientID, "message_read", msg.Payload)
 	}
+}
+
+// authorizedRecipient enforces server-side that `recipient` is either a
+// contact of `sender` (either direction) or a member of the conversation.
+// Mirrors the REST handlers' conversationHasMember / contact-key checks.
+func (h *Hub) authorizedRecipient(sender, recipient, convID string) bool {
+	if sender == "" || recipient == "" {
+		return false
+	}
+	if sender == recipient {
+		return true
+	}
+	if convID != "" && conversationHasMember(convID, sender) && conversationHasMember(convID, recipient) {
+		return true
+	}
+	if h.store != nil {
+		if h.store.GetUser("contact:"+sender+":"+recipient) != nil {
+			return true
+		}
+		if h.store.GetUser("contact:"+recipient+":"+sender) != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// hasPendingRequestFrom reports whether `recipient` has an outstanding contact
+// request addressed to `sender` (so the accept frame is legitimate).
+func (h *Hub) hasPendingRequestFrom(sender, recipient string) bool {
+	if h.store == nil || sender == "" || recipient == "" {
+		return false
+	}
+	for _, req := range h.store.GetPendingContactRequests(sender) {
+		if toStr(req["fromUserId"]) == recipient {
+			return true
+		}
+	}
+	return false
+}
+
+// conversationHasMember mirrors the REST-side check: convIDs follow the
+// "conv:<uidA>:<uidB>" naming convention.
+func conversationHasMember(convID, userID string) bool {
+	if convID == "" || userID == "" {
+		return false
+	}
+	for _, seg := range strings.Split(convID, ":") {
+		if seg == userID {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Hub) sendToUser(userID string, msgType string, payload WSPayload) bool {
@@ -273,7 +392,7 @@ func (h *Hub) ServeWs(w http.ResponseWriter, r *http.Request) {
 		log.Println("WS upgrade error:", err)
 		return
 	}
-	client := &Client{hub: h, conn: conn, send: make(chan []byte, 256)}
+	client := &Client{hub: h, conn: conn, send: make(chan []byte, 256), done: make(chan struct{})}
 	go client.writePump()
 	client.readPump()
 }

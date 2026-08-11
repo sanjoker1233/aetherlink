@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"log"
+	"sort"
 	"sync"
 	"time"
 )
@@ -80,10 +81,18 @@ func NewScheduler() *Scheduler {
 	return s
 }
 
+// RouteMessage is the exported wrapper; it takes the WRITE lock because
+// routing mutates the routing-table cache.
 func (s *Scheduler) RouteMessage(msg *Message) []LinkType {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.routeMessageLocked(msg)
+}
 
+// routeMessageLocked assumes s.mu is already held for WRITING.
+// sync.RWMutex is not reentrant, so callers that already hold the lock
+// (e.g. ProcessQueue) must use this instead of RouteMessage.
+func (s *Scheduler) routeMessageLocked(msg *Message) []LinkType {
 	if cached, ok := s.routingTable[msg.ID]; ok {
 		return cached
 	}
@@ -108,19 +117,19 @@ func (s *Scheduler) RouteMessage(msg *Message) []LinkType {
 		}{link.Type, score})
 	}
 
-	for i := 0; i < len(candidates); i++ {
-		for j := i + 1; j < len(candidates); j++ {
-			if candidates[j].score > candidates[i].score {
-				candidates[i], candidates[j] = candidates[j], candidates[i]
-			}
-		}
-	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return candidates[i].score > candidates[j].score
+	})
 
 	var routes []LinkType
 	for _, c := range candidates {
 		routes = append(routes, c.linkType)
 	}
 
+	// Bound the cache so it can't grow without limit (memory leak).
+	if len(s.routingTable) > 4096 {
+		s.routingTable = make(map[string][]LinkType)
+	}
 	s.routingTable[msg.ID] = routes
 	return routes
 }
@@ -152,7 +161,7 @@ func (s *Scheduler) ProcessQueue() []*Message {
 			continue
 		}
 
-		routes := s.RouteMessage(msg)
+		routes := s.routeMessageLocked(msg)
 		if len(routes) > 0 {
 			msg.Routes = routes
 			toSend = append(toSend, msg)
@@ -172,13 +181,9 @@ func (s *Scheduler) UpdateLinkStatus(linkType LinkType, status *LinkStatus) {
 }
 
 func (s *Scheduler) sortByPriority() {
-	for i := 0; i < len(s.queue); i++ {
-		for j := i + 1; j < len(s.queue); j++ {
-			if s.queue[j].Priority < s.queue[i].Priority {
-				s.queue[i], s.queue[j] = s.queue[j], s.queue[i]
-			}
-		}
-	}
+	sort.SliceStable(s.queue, func(i, j int) bool {
+		return s.queue[i].Priority < s.queue[j].Priority
+	})
 }
 
 func (s *Scheduler) Start(interval time.Duration) <-chan []*Message {

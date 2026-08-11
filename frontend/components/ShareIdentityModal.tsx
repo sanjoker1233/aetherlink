@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useId, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Copy, Check, Share2, QrCode, Download } from 'lucide-react'
 import { GlassCard } from '@/components/ui/GlassCard'
@@ -8,6 +8,7 @@ import { GlassButton } from '@/components/ui/GlassButton'
 import { useStore } from '@/lib/store'
 import { identityURI } from '@/lib/e2e'
 import { drawQRToCanvas } from '@/lib/qrcode'
+import { useDialogA11y } from '@/lib/useDialogA11y'
 
 interface Props {
   open: boolean
@@ -18,6 +19,8 @@ export function ShareIdentityModal({ open, onClose }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const { user, keyPair } = useStore()
   const [copied, setCopied] = useState(false)
+  const headingId = useId()
+  const dialogRef = useDialogA11y(open, onClose)
 
   const uri = user && keyPair
     ? identityURI(user.displayName, keyPair.publicKey, keyPair.fingerprint)
@@ -25,7 +28,7 @@ export function ShareIdentityModal({ open, onClose }: Props) {
 
   useEffect(() => {
     if (open && canvasRef.current && uri) {
-      drawQRToCanvas(canvasRef.current, uri, 260)
+      void drawQRToCanvas(canvasRef.current, uri, 260)
     }
   }, [open, uri])
 
@@ -64,16 +67,21 @@ export function ShareIdentityModal({ open, onClose }: Props) {
           onClick={onClose}
         >
           <motion.div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={headingId}
+            tabIndex={-1}
             initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-sm"
           >
             <GlassCard hover={false} className="p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold neon-text flex items-center gap-2">
+                <h2 id={headingId} className="text-lg font-semibold neon-text flex items-center gap-2">
                   <QrCode size={18} /> Share my identity
                 </h2>
-                <button onClick={onClose} className="text-gray-400 hover:text-white">
+                <button onClick={onClose} aria-label="Close dialog" className="text-gray-400 hover:text-white">
                   <X size={20} />
                 </button>
               </div>
@@ -81,6 +89,8 @@ export function ShareIdentityModal({ open, onClose }: Props) {
               <div className="flex justify-center mb-4">
                 <canvas
                   ref={canvasRef}
+                  aria-label="QR code containing your identity link"
+                  role="img"
                   className="rounded-xl shadow-neon"
                   width={260}
                   height={260}

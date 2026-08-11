@@ -21,6 +21,8 @@ const (
 
 func (c *Client) readPump() {
 	defer func() {
+		// Retire the client first so no producer writes to c.send afterwards.
+		c.close()
 		c.hub.unregister <- c
 		c.conn.Close()
 	}()
@@ -48,7 +50,11 @@ func (c *Client) readPump() {
 		case "auth":
 			userID, err := auth.ValidateToken(msg.Payload.Token)
 			if err != nil || userID == "" {
-				c.send <- mustMarshal(WSMessage{Type: "auth_error", Payload: WSPayload{Content: "invalid_token"}})
+				select {
+				case c.send <- mustMarshal(WSMessage{Type: "auth_error", Payload: WSPayload{Content: "invalid_token"}}):
+				case <-c.done:
+				default:
+				}
 				return
 			}
 			c.userID = userID
@@ -57,8 +63,13 @@ func (c *Client) readPump() {
 			c.hub.register <- c
 
 		case "ping":
-			c.send <- mustMarshal(WSMessage{Type: "pong",
-				Payload: WSPayload{Timestamp: time.Now().UnixMilli()}})
+			select {
+			case c.send <- mustMarshal(WSMessage{Type: "pong",
+				Payload: WSPayload{Timestamp: time.Now().UnixMilli()}}):
+			case <-c.done:
+				return
+			default:
+			}
 
 		default:
 			if c.userID == "" || c.userID == "anonymous" {
@@ -87,30 +98,49 @@ func (c *Client) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
+		c.close()
 		c.conn.Close()
 	}()
 
 	for {
 		select {
+		case <-c.done:
+			// Client retired. Deliberately do NOT close(c.send): the hub may
+			// still hold a reference and a concurrent send would panic the
+			// whole process. The channel is simply garbage-collected.
+			c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+			return
+
 		case msg, ok := <-c.send:
 			if !ok {
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-			w, _ := c.conn.NextWriter(websocket.TextMessage)
+			w, err := c.conn.NextWriter(websocket.TextMessage)
+			if err != nil {
+				return
+			}
 			if w != nil {
 				w.Write(msg)
 				for i := 0; i < len(c.send); i++ {
 					w.Write([]byte("\n"))
-					w.Write(<-c.send)
+					select {
+					case extra := <-c.send:
+						w.Write(extra)
+					default:
+					}
 				}
-				w.Close()
+				if err := w.Close(); err != nil {
+					return
+				}
 			}
 
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-			c.conn.WriteMessage(websocket.PingMessage, nil)
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
 }

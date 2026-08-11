@@ -1,16 +1,19 @@
 'use client'
 
-import { useEffect } from 'react'
-import { motion } from 'framer-motion'
-import { ServerOff, RefreshCw } from 'lucide-react'
-import { GlassCard } from '@/components/ui/GlassCard'
-import { GlassButton } from '@/components/ui/GlassButton'
+import { useEffect, useState } from 'react'
+import { ServerOff, RefreshCw, X } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import { api } from '@/lib/api'
 
+/**
+ * Offline-first: the app is ALWAYS rendered (local key generation, reading
+ * cached conversations, etc. must work without a server). When /health fails
+ * we surface a dismissible banner instead of blocking the whole UI.
+ */
 export function ServerGuard({ children }: { children: React.ReactNode }) {
   const serverAvailable = useStore((s) => s.serverAvailable)
   const setServerAvailable = useStore((s) => s.setServerAvailable)
+  const [dismissed, setDismissed] = useState(false)
 
   const check = () => {
     api.health()
@@ -22,38 +25,39 @@ export function ServerGuard({ children }: { children: React.ReactNode }) {
     check()
     const iv = setInterval(check, 10000)
     return () => clearInterval(iv)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const checking = serverAvailable === null
   const offline = serverAvailable === false
 
-  if (offline || checking) {
-    return (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: '#120c0a' }}>
-        <GlassCard variant="neon" hover={false} className="p-8 max-w-sm text-center">
-          <motion.div
-            animate={{ opacity: [0.5, 1, 0.5] }}
-            transition={{ duration: 2, repeat: Infinity }}
+  return (
+    <>
+      {offline && !dismissed && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-0 inset-x-0 z-[100] flex items-center justify-center gap-3 px-4 py-2 bg-rose-950/90 border-b border-rose-500/30 text-xs text-rose-100 backdrop-blur"
+        >
+          <ServerOff size={14} className="text-rose-400 shrink-0" />
+          <span className="min-w-0">
+            Server unreachable — working offline. Messages will send when the server is back.
+          </span>
+          <button
+            onClick={check}
+            className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20"
           >
-            <ServerOff size={48} className="text-rose-500 mx-auto mb-4" />
-          </motion.div>
-          <h2 className="text-lg font-semibold text-[#f5e6d3] mb-2">
-            {checking ? 'Connecting to server...' : 'Server offline'}
-          </h2>
-          <p className="text-sm text-gray-400 mb-6">
-            {checking
-              ? 'Attempting to connect to the CRYPTMessenger server...'
-              : 'The CRYPTMessenger server is unreachable.\nAutomatic checks every 10s.'}
-          </p>
-          {offline && (
-            <GlassButton variant="primary" onClick={check} icon={<RefreshCw size={14} />}>
-              Check again
-            </GlassButton>
-          )}
-        </GlassCard>
-      </div>
-    )
-  }
-
-  return <>{children}</>
+            <RefreshCw size={12} /> Retry
+          </button>
+          <button
+            onClick={() => setDismissed(true)}
+            aria-label="Dismiss offline notice"
+            className="shrink-0 p-1 rounded-lg hover:bg-white/10"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+      {children}
+    </>
+  )
 }

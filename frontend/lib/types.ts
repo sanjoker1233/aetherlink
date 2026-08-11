@@ -15,6 +15,8 @@ export interface Contact {
   displayName: string
   publicKey: string
   publicKeyFingerprint: string
+  /** Set after the user out-of-band verifies the safety number (key pinning). */
+  verified?: boolean
   avatar?: string
   status: 'online' | 'offline' | 'mesh'
   lastSeen?: number
@@ -45,6 +47,12 @@ export interface Message {
   status: 'sending' | 'sent' | 'delivered' | 'failed'
   networkRoute?: NetworkType[]
   replyTo?: string
+  /** Read receipt: set when the recipient has seen this message. */
+  read?: boolean
+  readAt?: number
+  /** Ephemeral (Snapchat-style): auto-deleted after `ttl` ms, honored by the recipient. */
+  ephemeral?: boolean
+  ttl?: number
 }
 
 export interface Conversation {
@@ -82,7 +90,10 @@ export interface MeshNetwork {
 }
 
 export interface AuthKeyPair {
-  publicKey: string; privateKey: string; fingerprint: string
+  publicKey: string
+  /** Non-extractable CryptoKey handle. Never serialized. */
+  privateKey: CryptoKey | null
+  fingerprint: string
 }
 
 export interface AppSettings {
@@ -93,6 +104,7 @@ export interface AppSettings {
   notificationsEnabled: boolean
   offlineMode: boolean
   decryptDuration: number
+  disappearingTTL: number
 }
 
 export type TabType = 'chats' | 'contacts' | 'network' | 'settings'

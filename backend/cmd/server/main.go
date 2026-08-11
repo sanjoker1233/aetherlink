@@ -128,6 +128,7 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
+	r.Use(securityHeaders)
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   allowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
@@ -140,7 +141,7 @@ func main() {
 		w.Write([]byte(`{"status":"ok","service":"cryptmessenger","version":"0.1.0"}`))
 	})
 
-	r.With(registerLimiter.Middleware).Post("/api/auth/register", func(w http.ResponseWriter, r *http.Request) {
+	r.With(registerLimiter.Middleware).Post("/api/auth/register-init", func(w http.ResponseWriter, r *http.Request) {
 		// Register is unauthenticated so it doesn't hit authMiddleware's MaxBytesReader.
 		// Cap it explicitly to stop trivial POST-a-huge-body DoS on an anonymous endpoint.
 		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
@@ -152,21 +153,115 @@ func main() {
 			http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
 			return
 		}
-		resp, _ := auth.RegisterHandler(body.DisplayName, body.PublicKey)
-		if resp != nil {
-			userData := map[string]string{
-				"userId":      resp.UserID,
-				"displayName": body.DisplayName,
-				"publicKey":   body.PublicKey,
-				"fingerprint": resp.Fingerprint,
+		if body.DisplayName == "" || body.PublicKey == "" {
+			http.Error(w, `{"error":"missing required fields"}`, http.StatusBadRequest)
+			return
+		}
+		if _, err := auth.ValidatePublicKey(body.PublicKey); err != nil {
+			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
+			return
+		}
+		// Reject duplicate public keys and display names (squatting / impersonation).
+		registeredUsersMu.Lock()
+		for _, u := range registeredUsers {
+			if u["publicKey"] == body.PublicKey {
+				registeredUsersMu.Unlock()
+				http.Error(w, `{"error":"public key already registered"}`, http.StatusConflict)
+				return
 			}
-			registeredUsersMu.Lock()
-			registeredUsers[resp.Fingerprint] = userData
-			registeredUsersMu.Unlock()
-			store.SaveUser("reg:"+resp.Fingerprint, map[string]interface{}{
-				"userId": resp.UserID, "displayName": body.DisplayName,
-				"publicKey": body.PublicKey, "fingerprint": resp.Fingerprint,
-			})
+			if strings.EqualFold(u["displayName"], body.DisplayName) {
+				registeredUsersMu.Unlock()
+				http.Error(w, `{"error":"display name already taken"}`, http.StatusConflict)
+				return
+			}
+		}
+		registeredUsersMu.Unlock()
+
+		resp, err := auth.RegisterInit(body.DisplayName, body.PublicKey)
+		if err != nil {
+			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	})
+
+	r.With(registerLimiter.Middleware).Post("/api/auth/register-confirm", func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+		var body struct {
+			PendingID string `json:"pendingId"`
+			Response  string `json:"response"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+			return
+		}
+		resp, err := auth.RegisterConfirm(body.PendingID, body.Response)
+		if err != nil {
+			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
+			return
+		}
+		// Record the completed identity so it can later log in (recover on a
+		// new device) via the proof-of-possession login endpoints.
+		auth.RecordVerifiedIdentity(resp.PublicKey, resp.UserID, resp.DisplayName)
+		// Persist the now proof-verified identity.
+		registeredUsersMu.Lock()
+		registeredUsers[resp.Fingerprint] = map[string]string{
+			"userId":      resp.UserID,
+			"displayName": resp.DisplayName,
+			"publicKey":   resp.PublicKey,
+			"fingerprint": resp.Fingerprint,
+		}
+		registeredUsersMu.Unlock()
+		store.SaveUser("reg:"+resp.Fingerprint, map[string]interface{}{
+			"userId": resp.UserID, "displayName": resp.DisplayName,
+			"publicKey": resp.PublicKey, "fingerprint": resp.Fingerprint,
+		})
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	})
+
+	// Proof-of-possession LOGIN for an existing identity (device recovery /
+	// second device). Mirrors the register PoP flow but issues a token for the
+	// already-registered userID instead of minting a new one. See audit: the
+	// app previously had no way to recover an identity without re-registering
+	// (which is rejected for an already-used public key).
+	r.With(registerLimiter.Middleware).Post("/api/auth/login-init", func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+		var body struct {
+			PublicKey string `json:"publicKey"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+			return
+		}
+		if _, err := auth.ValidatePublicKey(body.PublicKey); err != nil {
+			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
+			return
+		}
+		resp, err := auth.LoginInit(body.PublicKey)
+		if err != nil {
+			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	})
+
+	r.With(registerLimiter.Middleware).Post("/api/auth/login-confirm", func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+		var body struct {
+			PendingID string `json:"pendingId"`
+			Response  string `json:"response"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+			return
+		}
+		resp, err := auth.LoginConfirm(body.PendingID, body.Response)
+		if err != nil {
+			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
@@ -359,6 +454,7 @@ func main() {
 					"fingerprint": fp,
 				}
 				registeredUsersMu.Unlock()
+				auth.RecordVerifiedIdentity(toString(v["publicKey"]), toString(v["userId"]), toString(v["displayName"]))
 			}
 		}
 	}
@@ -393,6 +489,30 @@ func main() {
 // parseAllowedOrigins parses a comma-separated list into a normalized slice.
 // Wildcards are refused — a wildcard on an authed API means any origin can
 // read cross-origin responses once it has a token.
+// securityHeaders attaches defensive HTTP headers to every response. CSP is
+// intentionally permissive for inline/eval because Next.js requires them; a
+// proper nonce-based CSP is the next hardening step. connect-src includes
+// ws:/wss: for the live WebSocket; frame-ancestors 'none' blocks clickjacking.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+		h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
+		h.Set("Content-Security-Policy",
+			"default-src 'self'; "+
+				"script-src 'self' 'unsafe-inline' 'unsafe-eval'; "+
+				"style-src 'self' 'unsafe-inline'; "+
+				"img-src 'self' data: blob:; "+
+				"connect-src 'self' ws: wss:; "+
+				"font-src 'self' data:; "+
+				"frame-ancestors 'none'")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func parseAllowedOrigins(raw string) []string {
 	if raw == "" {
 		return []string{"http://localhost:3000", "http://127.0.0.1:3000"}

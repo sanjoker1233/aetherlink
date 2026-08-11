@@ -1,0 +1,46 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      # OBLIGATOIRE : >= 32 octets. A fournir via un fichier .env non commite.
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET est obligatoire (>=32 octets)}
+      # CSV d'origines exactes, pas de wildcard.
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      BIND: ":9090"
+      PORT: "9090"
+      DATA_DIR: /data
+    ports:
+      - "9090:9090"
+    volumes:
+      - backend-data:/data
+    networks:
+      - aetherlink
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # NOTE : cette URL est inline dans le bundle et donc resolue PAR LE
+        # NAVIGATEUR. "http://backend:9090" ne fonctionne QUE si le navigateur
+        # tourne dans le meme reseau Docker. En pratique, mettre l'URL publique
+        # du backend (ex: https://api.example.com) via NEXT_PUBLIC_API_URL.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://backend:9090}
+    environment:
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - aetherlink
+    restart: unless-stopped
+
+volumes:
+  backend-data:
+
+networks:
+  aetherlink:
+    driver: bridge

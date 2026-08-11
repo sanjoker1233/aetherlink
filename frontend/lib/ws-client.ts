@@ -78,7 +78,8 @@ export class WSManager {
   }
 
   private auth() {
-    const token = localStorage.getItem('crypt_token')
+    // In-memory token only (never localStorage).
+    const token = api.getToken()
     this.send('auth', { senderId: this.userId, token: token || '' })
   }
 
@@ -105,7 +106,7 @@ export class WSManager {
       case 'message': {
         const p = msg.payload
         let plainContent = ''
-        if (p.encrypted && store.keyPair) {
+        if (p.encrypted && store.keyPair?.privateKey) {
           try {
             plainContent = await decryptMessage(p.iv, p.encryptedKey, p.content, store.keyPair.privateKey)
           } catch {}
@@ -117,6 +118,8 @@ export class WSManager {
           encrypted: p.encrypted, encryptedKey: p.encryptedKey,
           iv: p.iv, timestamp: p.timestamp || Date.now(),
           status: 'sent',
+          ephemeral: p.ephemeral || undefined,
+          ttl: p.ttl || undefined,
         })
         if (p.senderId !== store.user?.id) {
           const sender = store.contacts.find(c => c.userId === p.senderId)
@@ -125,6 +128,14 @@ export class WSManager {
             'Encrypted message 🔒',
             () => store.setActiveConversation(p.conversationId)
           )
+        }
+        break
+      }
+
+      case 'message_read': {
+        const p = msg.payload
+        if (p.conversationId && Array.isArray(p.messageIds)) {
+          store.markMessagesRead(p.conversationId, p.messageIds)
         }
         break
       }
@@ -172,6 +183,14 @@ export class WSManager {
         }
         break
       }
+
+      case 'typing': {
+        const p = msg.payload
+        if (p.conversationId) {
+          store.setTyping(p.conversationId, !!p.typing)
+        }
+        break
+      }
     }
   }
 
@@ -190,6 +209,12 @@ export class WSManager {
     let encryptedKey = ''
     let iv = ''
 
+    // Ephemeral (Snapchat-style): when the sender's disappearing-message TTL
+    // is on, the message carries its own ttl so the recipient honors it
+    // regardless of their own setting.
+    const ephemeral = store.settings.disappearingTTL > 0
+    const ttl = store.settings.disappearingTTL
+
     if (store.settings.encryptionEnabled && recipient.publicKey) {
       try {
         const result = await encryptMessage(plaintext, recipient.publicKey)
@@ -204,11 +229,23 @@ export class WSManager {
       id: msgId, conversationId, senderId: user.id,
       content, plainContent: plaintext, encrypted, encryptedKey, iv,
       timestamp: Date.now(), status: 'sending',
+      ephemeral: ephemeral || undefined,
+      ttl: ephemeral ? ttl : undefined,
     }
     store.addMessage(conversationId, msg)
     const { plainContent: _, ...wireMsg } = msg
     this.send('message', { ...wireMsg, recipientId: recipient.userId })
     store.updateMessageStatus(msgId, 'sent')
+  }
+
+  /** Tell the original sender that the given messages were seen ("Vu"). */
+  sendReadReceipt(conversationId: string, messageIds: string[], senderId: string) {
+    if (!messageIds.length) return
+    this.send('message_read', {
+      conversationId,
+      messageIds,
+      recipientId: senderId,
+    })
   }
 
   sendContactRequest(toUserId: string) {
@@ -260,6 +297,10 @@ export class WSManager {
       senderId: this.userId,
       toUserId: userId,
     })
+  }
+
+  sendTyping(conversationId: string, recipientId: string, typing: boolean) {
+    this.send('typing', { conversationId, recipientId, typing })
   }
 }
 

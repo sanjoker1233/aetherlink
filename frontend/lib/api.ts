@@ -1,26 +1,17 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9090'
 
 export class CryptAPI {
+  // SECURITY: the auth token lives in memory ONLY. Persisting it to
+  // localStorage makes it trivially exfiltratable by any XSS. On reload the
+  // user re-authenticates locally with their stored identity.
   private token: string | null = null
-
-  constructor() {
-    if (typeof window !== 'undefined') {
-      this.token = localStorage.getItem('crypt_token')
-    }
-  }
 
   setToken(token: string) {
     this.token = token
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('crypt_token', token)
-    }
   }
 
   clearToken() {
     this.token = null
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('crypt_token')
-    }
   }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -52,12 +43,42 @@ export class CryptAPI {
     return this.request('/health')
   }
 
-  async register(displayName: string, publicKey: string): Promise<{
-    userId: string; token: string; fingerprint: string
+  async registerInit(displayName: string, publicKey: string): Promise<{
+    pendingId: string; encryptedChallenge: string
   }> {
-    return this.request('/api/auth/register', {
+    return this.request('/api/auth/register-init', {
       method: 'POST',
       body: JSON.stringify({ displayName, publicKey }),
+    })
+  }
+
+  async registerConfirm(pendingId: string, response: string): Promise<{
+    userId: string; token: string; fingerprint: string
+    displayName: string; publicKey: string
+  }> {
+    return this.request('/api/auth/register-confirm', {
+      method: 'POST',
+      body: JSON.stringify({ pendingId, response }),
+    })
+  }
+
+  // Proof-of-possession login for an EXISTING identity (device recovery /
+  // second device). Mirrors register but issues a token for the already
+  // registered userID instead of minting a new one.
+  async loginInit(publicKey: string): Promise<{ pendingId: string; encryptedChallenge: string }> {
+    return this.request('/api/auth/login-init', {
+      method: 'POST',
+      body: JSON.stringify({ publicKey }),
+    })
+  }
+
+  async loginConfirm(pendingId: string, response: string): Promise<{
+    userId: string; token: string; fingerprint: string
+    displayName: string; publicKey: string
+  }> {
+    return this.request('/api/auth/login-confirm', {
+      method: 'POST',
+      body: JSON.stringify({ pendingId, response }),
     })
   }
 

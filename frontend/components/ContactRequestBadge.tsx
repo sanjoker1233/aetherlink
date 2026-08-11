@@ -14,7 +14,7 @@ export function ContactRequestBadge() {
   if (contactRequests.length === 0) return null
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 space-y-2 max-w-sm">
+    <div className="fixed bottom-20 right-2 left-2 sm:left-auto sm:bottom-4 sm:right-4 z-50 space-y-2 sm:max-w-sm">
       <AnimatePresence>
         {contactRequests.filter((r) => r.status === 'pending').map((req) => (
           <motion.div

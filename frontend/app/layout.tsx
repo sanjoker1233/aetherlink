@@ -12,6 +12,7 @@ import { NavSync } from '@/components/NavSync'
 import { StoreHydrator } from '@/components/StoreHydrator'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { ServerGuard } from '@/components/ServerGuard'
+import { BottomNav } from '@/components/BottomNav'
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 
@@ -24,7 +25,8 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  width: 'device-width', initialScale: 1, maximumScale: 1, userScalable: false, themeColor: '#120c0a',
+  // WCAG 1.4.4: do not block user zoom.
+  width: 'device-width', initialScale: 1, themeColor: '#120c0a',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -39,16 +41,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ContactRequestBadge />
         <MessageDetail />
         <ServerGuard>
-          <div className="relative z-10 flex h-screen overflow-hidden">
+          <div className="relative z-10 flex app-shell overflow-hidden">
             <Sidebar />
             <div className="flex-1 flex flex-col min-w-0">
               <NetworkBar />
-              <main className="flex-1 overflow-y-auto">
+              <main className="flex-1 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)_+_4rem)] md:pb-0">
                 <ErrorBoundary>{children}</ErrorBoundary>
               </main>
             </div>
           </div>
         </ServerGuard>
+        <BottomNav />
       </body>
     </html>
   )

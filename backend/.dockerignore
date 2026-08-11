@@ -1,0 +1,6 @@
+.git
+data
+Dockerfile
+.dockerignore
+aetherlink-server
+cryptmessenger-server

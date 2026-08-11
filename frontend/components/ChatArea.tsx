@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Send, Lock, Unlock, ChevronLeft, Paperclip, AlertCircle, CheckCheck, FileText, Image, X } from 'lucide-react'
+import { Send, Lock, Unlock, ChevronLeft, Paperclip, AlertCircle, CheckCheck, FileText, Image, X, Search } from 'lucide-react'
 import { Avatar } from '@/components/ui'
 import { GlassButton } from '@/components/ui/GlassButton'
 import { useStore } from '@/lib/store'
@@ -18,9 +18,15 @@ export function ChatArea() {
   const processedIds = useRef<Set<string>>(new Set())
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const { activeConversationId, setActiveConversation, setSelectedMessage, messages, user, conversations, settings } = useStore()
+  const lastTypingRef = useRef(0)
+  const [search, setSearch] = useState('')
+  const { activeConversationId, setActiveConversation, setSelectedMessage, messages, user, conversations, settings, typing } = useStore()
 
   const currentMessages = activeConversationId ? (messages[activeConversationId] || []) : []
+  const visibleMessages = search
+    ? currentMessages.filter((m) => (m.plainContent || m.content || '').toLowerCase().includes(search.toLowerCase()))
+    : currentMessages
+  const isPeerTyping = activeConversationId ? !!typing[activeConversationId] : false
   const activeConv = conversations.find((c) => c.id === activeConversationId)
 
   useEffect(() => {
@@ -49,6 +55,19 @@ export function ChatArea() {
     })
   }, [currentMessages, settings.decryptDuration])
 
+  // Read receipts ("Vu"): when this conversation is open, flag the incoming
+  // (not-our-own) messages as seen and tell their original sender.
+  useEffect(() => {
+    if (!activeConversationId || !user) return
+    const incoming = currentMessages.filter((m) => m.senderId !== user.id && !m.read)
+    if (incoming.length === 0) return
+    const ids = incoming.map((m) => m.id)
+    const senderId = incoming[0].senderId
+    wsManager.sendReadReceipt(activeConversationId, ids, senderId)
+    // Reflect locally so we don't re-send the same receipt on every render.
+    useStore.getState().markMessagesRead(activeConversationId, ids)
+  }, [activeConversationId, currentMessages, user])
+
   const handleSend = () => {
     const text = input.trim()
     if ((!text && attachments.length === 0) || !activeConversationId) return
@@ -56,7 +75,21 @@ export function ChatArea() {
       ? text + '\n' + attachments.map(a => `[${a.type === 'image' ? '📷' : '📎'} ${a.name}]`).join('\n')
       : text
     wsManager.sendEncryptedMessage(activeConversationId, fullText)
+    const peer = activeConv?.participants.find((p) => p !== user?.id)
+    if (peer) wsManager.sendTyping(activeConversationId!, peer, false)
     setInput(''); setAttachments([]); setShowAttach(false)
+  }
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value)
+    if (!activeConversationId || !activeConv) return
+    const peer = activeConv.participants.find((p) => p !== user?.id)
+    if (!peer) return
+    const now = Date.now()
+    if (now - lastTypingRef.current > 2000) {
+      lastTypingRef.current = now
+      wsManager.sendTyping(activeConversationId, peer, true)
+    }
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -132,7 +165,7 @@ export function ChatArea() {
   return (
     <div className="flex-1 flex flex-col h-full min-h-0">
       <div className="glass-panel mx-2 mt-2 px-4 py-3 flex items-center gap-3 shrink-0">
-        <button onClick={() => setActiveConversation(null)} className="lg:hidden text-gray-400 hover:text-white">
+        <button onClick={() => setActiveConversation(null)} className="md:hidden text-gray-400 hover:text-white">
           <ChevronLeft size={20} />
         </button>
         <Avatar name={activeConv?.name || 'Contact'} status="online" />
@@ -141,15 +174,25 @@ export function ChatArea() {
             <span className="text-sm font-medium">{activeConv?.name || 'Contact'}</span>
             <span className="encryption-badge text-[10px]"><Lock size={10} /> E2EE</span>
           </div>
-          <p className="text-xs text-emerald-500">
-            {activeConv?.encryptionEnabled ? 'End-to-end encrypted' : ''}
+          <p className="text-xs text-amber-400">
+            {isPeerTyping ? 'typing…' : activeConv?.encryptionEnabled ? 'End-to-end encrypted' : ''}
           </p>
+        </div>
+        <div className="relative shrink-0 hidden sm:block">
+          <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search…"
+            aria-label="Search messages"
+            className="glass-input pl-7 py-1 text-xs w-28 focus:w-44 transition-all"
+          />
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         <AnimatePresence>
-          {currentMessages.map((msg) => {
+          {visibleMessages.map((msg) => {
             const isEncrypted = msg.encrypted
             const isUnlocked = unlockedIds[msg.id]
             const showDecryptToggle = isEncrypted && !!msg.plainContent
@@ -197,7 +240,11 @@ export function ChatArea() {
                   <span className="text-[10px] text-gray-500">
                     {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
-                  {msg.senderId === user?.id && statusIcon(msg.status)}
+                  {msg.senderId === user?.id && (
+                    msg.read
+                      ? <span className="flex items-center gap-0.5 text-[10px] text-sky-400"><CheckCheck size={12} /> Vu</span>
+                      : statusIcon(msg.status)
+                  )}
                 </div>
 
                 {isEncrypted && (
@@ -232,25 +279,29 @@ export function ChatArea() {
         </div>
       )}
 
-      <div className="p-3 border-t border-white/5 shrink-0">
-        <div className="flex items-center gap-2">
+      <div className="p-3 pb-[calc(env(safe-area-inset-bottom)_+_0.75rem)] border-t border-white/5 shrink-0">
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => { e.preventDefault(); handleSend() }}
+        >
           <div className="relative">
-            <button onClick={() => fileInputRef.current?.click()} className="glass-button p-2.5 shrink-0"><Paperclip size={18} /></button>
+            <button type="button" aria-label="Attach a file" onClick={() => fileInputRef.current?.click()} className="glass-button p-2.5 shrink-0"><Paperclip size={18} /></button>
             <input ref={fileInputRef} type="file" accept="image/*,.pdf,.txt,.doc,.docx" className="hidden" onChange={handleFileSelect} />
           </div>
           <div className="flex-1 relative">
             <input
               value={input}
+              aria-label="Message"
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
               placeholder="E2E encrypted message..."
               className="glass-input w-full pr-4"
             />
           </div>
-          <GlassButton variant="primary" size="md" onClick={handleSend} icon={<Send size={16} />}>
+          <GlassButton type="submit" variant="primary" size="md" icon={<Send size={16} />}>
             Send
           </GlassButton>
-        </div>
+        </form>
       </div>
     </div>
   )

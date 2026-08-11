@@ -2,13 +2,15 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Lock, Key, User, Shield, Wifi } from 'lucide-react'
+import { Lock, Key, User, Shield, Wifi, Download } from 'lucide-react'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { GlassButton } from '@/components/ui/GlassButton'
 import { GlassInput } from '@/components/ui/GlassInput'
 import { useStore } from '@/lib/store'
 import { CryptCrypto } from '@/lib/crypto'
 import { api } from '@/lib/api'
+import { loadPrivateKey, decryptBytes, bytesToB64 } from '@/lib/e2e'
+import { restoreFromBackup } from '@/lib/backup'
 import type { User as UserType, AuthKeyPair } from '@/lib/types'
 
 export function AuthPage() {
@@ -18,6 +20,11 @@ export function AuthPage() {
   const [error, setError] = useState('')
   const [backendOk, setBackendOk] = useState<boolean | null>(null)
   const { setUser, setKeyPair, setAuthenticated } = useStore()
+
+  const [restoreOpen, setRestoreOpen] = useState(false)
+  const [restoreFile, setRestoreFile] = useState<File | null>(null)
+  const [restorePass, setRestorePass] = useState('')
+  const [restoreStatus, setRestoreStatus] = useState('')
 
   useEffect(() => {
     api.health().then(() => setBackendOk(true)).catch(() => setBackendOk(false))
@@ -34,14 +41,19 @@ export function AuthPage() {
 
       const kp: AuthKeyPair = { publicKey, privateKey, fingerprint: fp }
       let userId = CryptCrypto.generateId()
-      let token = ''
       let registered = false
 
       try {
-        const res = await api.register(name, publicKey)
+        // Two-step register with proof-of-possession:
+        //  1) the server encrypts a random nonce with our public key
+        //  2) we decrypt it with the private key and echo it back.
+        // This proves we actually hold the private key before an identity is minted.
+        const init = await api.registerInit(name, publicKey)
+        const raw = await decryptBytes(init.encryptedChallenge, privateKey)
+        const response = bytesToB64(raw)
+        const res = await api.registerConfirm(init.pendingId, response)
         userId = res.userId
-        token = res.token
-        api.setToken(token)
+        api.setToken(res.token)
         registered = true
       } catch {
       }
@@ -55,24 +67,66 @@ export function AuthPage() {
       }
 
       setKeyPair(kp); setUser(user); setAuthenticated(true)
-      localStorage.setItem('crypt_identity', JSON.stringify({ keyPair: kp, user, token }))
-      if (!registered) setError('Account created locally. Backend unreachable — others won't be able to find you while the server is offline.')
+      // SECURITY: only the PUBLIC half of the identity is persisted. The RSA
+      // private key is a non-extractable CryptoKey stored in IndexedDB by
+      // lib/e2e.ts, and the auth token stays in memory only.
+      localStorage.setItem('crypt_identity', JSON.stringify({
+        user, publicKey, fingerprint: fp,
+      }))
+      if (!registered) setError("Account created locally. Backend unreachable — others won't be able to find you while the server is offline.")
     } catch (err) {
       setError('Error generating keys')
     }
     setIsLoading(false)
   }
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     const stored = localStorage.getItem('crypt_identity')
     if (!stored) { setError('No identity found. Create an account.'); return }
     try {
-      const { keyPair, user, token } = JSON.parse(stored)
-      setKeyPair(keyPair); setUser(user); setAuthenticated(true)
-      if (token) api.setToken(token)
+      const parsed = JSON.parse(stored)
+      const user = parsed.user
+      const publicKey = parsed.publicKey || user?.publicKey || ''
+      const fp = parsed.fingerprint || user?.publicKeyFingerprint || ''
+      const privateKey = await loadPrivateKey()
+      if (!privateKey) {
+        setError('Private key not found on this device. Create a new identity.')
+        return
+      }
+
+      // Re-authenticate with the server via proof-of-possession login so we get
+      // a fresh token for the existing identity (the JWT is not persisted).
+      try {
+        const init = await api.loginInit(publicKey)
+        const raw = await decryptBytes(init.encryptedChallenge, privateKey)
+        const response = bytesToB64(raw)
+        const res = await api.loginConfirm(init.pendingId, response)
+        api.setToken(res.token)
+      } catch {
+        // Backend unreachable: stay authenticated locally (offline).
+      }
+
+      setKeyPair({ publicKey, privateKey, fingerprint: fp })
+      setUser(user)
+      setAuthenticated(true)
     } catch {
       setError('Corrupt identity data')
     }
+  }
+
+  const handleRestore = async () => {
+    if (!restoreFile) { setError('Choose a backup file first'); return }
+    setIsLoading(true); setError(''); setRestoreStatus('')
+    try {
+      const text = await restoreFile.text()
+      const res = await restoreFromBackup(text, restorePass)
+      setRestoreStatus(res.offline
+        ? 'Restored locally. Server unreachable — history is readable, but you are not discoverable until it returns.'
+        : 'Identity and history restored.')
+    } catch (e: any) {
+      setError(e?.message || 'Restore failed')
+    }
+    setIsLoading(false)
   }
 
   return (
@@ -140,7 +194,21 @@ export function AuthPage() {
               <GlassButton variant="primary" size="lg" onClick={handleLogin} className="w-full">
                 <Key size={16} /> Sign in with my keys
               </GlassButton>
-              {error && <p className="text-sm text-red-400 text-center">{error}</p>}
+              <GlassButton variant="ghost" size="sm" onClick={() => setRestoreOpen((v) => !v)} className="w-full">
+                <Download size={14} /> Restore from backup
+              </GlassButton>
+              {restoreOpen && (
+                <div className="glass-panel p-3 space-y-3">
+                  <input type="file" accept="application/json,.json" onChange={(e) => setRestoreFile(e.target.files?.[0] || null)} className="text-xs text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-amber-400/20 file:text-amber-400 file:text-xs" />
+                  <input type="password" placeholder="Backup passphrase" value={restorePass} onChange={(e) => setRestorePass(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-gray-200 outline-none focus:border-amber-400/40" />
+                  <GlassButton variant="primary" size="sm" onClick={handleRestore} disabled={isLoading} className="w-full">
+                    {isLoading ? 'Restoring...' : 'Restore identity'}
+                  </GlassButton>
+                  {restoreStatus && <p className="text-[11px] text-emerald-400">{restoreStatus}</p>}
+                  {error && <p className="text-[11px] text-rose-400">{error}</p>}
+                </div>
+              )}
+              {error && !restoreOpen && <p className="text-sm text-red-400 text-center">{error}</p>}
             </div>
           )}
 

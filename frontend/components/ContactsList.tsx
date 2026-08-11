@@ -2,11 +2,12 @@
 
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Search, UserPlus, Radio, Wifi, Satellite, MessageSquare, User, Trash2 } from 'lucide-react'
+import { Search, UserPlus, Radio, Wifi, Satellite, MessageSquare, User, Trash2, ShieldCheck } from 'lucide-react'
 import { Avatar } from '@/components/ui'
 import { GlassInput } from '@/components/ui/GlassInput'
 import { GlassButton } from '@/components/ui/GlassButton'
 import { AddContactModal } from './AddContactModal'
+import { ContactVerifyModal } from './ContactVerifyModal'
 import { useStore } from '@/lib/store'
 import { generateId } from '@/lib/crypto'
 import type { Contact, Conversation } from '@/lib/types'
@@ -22,6 +23,7 @@ const netIcon: Record<string, React.ReactNode> = {
 export function ContactsList() {
   const [search, setSearch] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [verifyContact, setVerifyContact] = useState<Contact | null>(null)
   const { contacts, user, addConversation, setActiveConversation, setActiveTab, removeContact, setSidebarOpen } = useStore()
 
   const filtered = contacts.filter((c) =>
@@ -44,7 +46,7 @@ export function ContactsList() {
     addConversation(conv)
     setActiveConversation(cid)
     setActiveTab('chats')
-    if (window.innerWidth < 1024) setSidebarOpen(false)
+    if (window.innerWidth < 768) setSidebarOpen(false)
   }
 
   return (
@@ -64,6 +66,7 @@ export function ContactsList() {
       </div>
 
       <AddContactModal open={showAdd} onClose={() => setShowAdd(false)} />
+      <ContactVerifyModal contact={verifyContact} onClose={() => setVerifyContact(null)} />
 
       {contacts.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -78,7 +81,7 @@ export function ContactsList() {
         </div>
       )}
 
-      <div className="space-y-1">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
         {filtered.map((contact) => (
           <motion.div
             key={contact.id}
@@ -90,6 +93,7 @@ export function ContactsList() {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium">{contact.displayName}</span>
+                {contact.verified && <ShieldCheck size={12} className="text-emerald-400 shrink-0" />}
                 {contact.network && netIcon[contact.network]}
                 <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full ${
                   contact.status === 'online' ? 'bg-neon-green/20 text-neon-green' :
@@ -102,15 +106,22 @@ export function ContactsList() {
               </p>
             </div>
             <button
+              onClick={() => setVerifyContact(contact)}
+              className="p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0 text-amber-400 hover:text-amber-300"
+              title="Verify safety number"
+            >
+              <ShieldCheck size={14} />
+            </button>
+            <button
               onClick={() => handleStartChat(contact)}
-              className="glass-button p-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+              className="glass-button p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0"
               title="Start a conversation"
             >
               <MessageSquare size={14} />
             </button>
             <button
               onClick={() => removeContact(contact.userId)}
-              className="p-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 text-gray-500 hover:text-rose-400"
+              className="p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0 text-gray-500 hover:text-rose-400"
               title="Delete contact"
             >
               <Trash2 size={14} />
