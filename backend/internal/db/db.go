@@ -16,17 +16,19 @@ import (
 const legacyPath = "/tmp/cryptmessenger-db.json"
 
 type Store struct {
-	mu       sync.RWMutex
-	users    map[string]map[string]interface{}
-	messages map[string][]map[string]interface{}
-	path     string
+	mu            sync.RWMutex
+	users         map[string]map[string]interface{}
+	messages      map[string][]map[string]interface{}
+	conversations map[string]map[string]interface{}
+	path          string
 }
 
 func NewStore(path string) *Store {
 	s := &Store{
-		users:    make(map[string]map[string]interface{}),
-		messages: make(map[string][]map[string]interface{}),
-		path:     path,
+		users:         make(map[string]map[string]interface{}),
+		messages:      make(map[string][]map[string]interface{}),
+		conversations: make(map[string]map[string]interface{}),
+		path:          path,
 	}
 	// Ensure the parent directory exists with restrictive perms BEFORE any
 	// write. 0700 means only the running user can list/traverse it — critical
@@ -55,6 +57,20 @@ func (s *Store) GetUser(userID string) map[string]interface{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.users[userID]
+}
+
+// Push subscriptions (WebPush) are stored per user under a dedicated key.
+func (s *Store) SavePushSubscription(userID string, sub map[string]interface{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.users["push:"+userID] = sub
+	s.persist()
+}
+
+func (s *Store) GetPushSubscription(userID string) map[string]interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.users["push:"+userID]
 }
 
 func (s *Store) GetAllUsers() map[string]map[string]interface{} {
@@ -159,6 +175,82 @@ func (s *Store) RemovePendingAccept(requestID string) {
 	s.persist()
 }
 
+// --- Conversations (group + DM membership) ---
+// A conversation is the source of truth for who may exchange messages. DMs
+// created before this table existed still work via the legacy "conv:<uidA>:<uidB>"
+// string convention (see hub.authorizedRecipient fallback), but all new
+// conversations (including groups) are created through the API and stored here.
+
+func (s *Store) SaveConversation(conv map[string]interface{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conversations == nil {
+		s.conversations = make(map[string]map[string]interface{})
+	}
+	id, _ := conv["id"].(string)
+	if id == "" {
+		return
+	}
+	s.conversations[id] = conv
+	s.persist()
+}
+
+func (s *Store) GetConversation(convID string) map[string]interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.conversations[convID]
+}
+
+func (s *Store) GetConversationMembers(convID string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	conv := s.conversations[convID]
+	if conv == nil {
+		return nil
+	}
+	members, _ := conv["members"].([]interface{})
+	out := make([]string, 0, len(members))
+	for _, m := range members {
+		if uid, ok := m.(string); ok {
+			out = append(out, uid)
+		}
+	}
+	return out
+}
+
+func (s *Store) IsConversationMember(convID, userID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	conv := s.conversations[convID]
+	if conv == nil {
+		return false
+	}
+	return isMember(conv, userID)
+}
+
+func (s *Store) ListConversations(userID string) []map[string]interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []map[string]interface{}
+	for _, conv := range s.conversations {
+		if isMember(conv, userID) {
+			out = append(out, conv)
+		}
+	}
+	return out
+}
+
+// isMember is the lock-free helper used inside already-locked methods.
+func isMember(conv map[string]interface{}, userID string) bool {
+	members, _ := conv["members"].([]interface{})
+	for _, m := range members {
+		if uid, ok := m.(string); ok && uid == userID {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Store) load() {
 	data, err := os.ReadFile(s.path)
 	if err != nil {
@@ -170,8 +262,9 @@ func (s *Store) load() {
 	// but the file we just read might have been left over from before.
 	_ = os.Chmod(s.path, 0o600)
 	var store struct {
-		Users    map[string]map[string]interface{}   `json:"users"`
-		Messages map[string][]map[string]interface{} `json:"messages"`
+		Users         map[string]map[string]interface{}   `json:"users"`
+		Messages      map[string][]map[string]interface{} `json:"messages"`
+		Conversations map[string]map[string]interface{}   `json:"conversations"`
 	}
 	if err := json.Unmarshal(data, &store); err != nil {
 		log.Printf("Error loading database: %v", err)
@@ -190,7 +283,13 @@ func (s *Store) load() {
 	} else {
 		s.messages = make(map[string][]map[string]interface{})
 	}
-	log.Printf("Loaded %d users and %d conversations", len(s.users), len(s.messages))
+	if s.conversations == nil {
+		s.conversations = make(map[string]map[string]interface{})
+	}
+	if store.Conversations != nil {
+		s.conversations = store.Conversations
+	}
+	log.Printf("Loaded %d users, %d conversations and %d message threads", len(s.users), len(s.conversations), len(s.messages))
 }
 
 // persist writes the DB atomically: dump JSON to a sibling tmp file with 0600,
@@ -200,8 +299,9 @@ func (s *Store) load() {
 // message ciphertext at rest (previously 0644 world-readable — audit H6).
 func (s *Store) persist() {
 	data, err := json.MarshalIndent(map[string]interface{}{
-		"users":    s.users,
-		"messages": s.messages,
+		"users":         s.users,
+		"messages":      s.messages,
+		"conversations": s.conversations,
 	}, "", "  ")
 	if err != nil {
 		log.Printf("Error marshaling database: %v", err)

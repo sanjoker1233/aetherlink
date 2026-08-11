@@ -21,6 +21,8 @@ type Store interface {
 	GetPendingAccepts(userID string) []map[string]interface{}
 	RemovePendingAccept(requestID string)
 	GetUser(userID string) map[string]interface{}
+	GetConversationMembers(convID string) []string
+	IsConversationMember(convID, userID string) bool
 }
 
 // allowedWSOrigins is populated at package init from ALLOWED_ORIGINS.
@@ -95,6 +97,12 @@ type WSPayload struct {
 	// MessageIDs lists the messages a read-receipt ("Vu") applies to.
 	MessageIDs []string `json:"messageIds,omitempty"`
 
+	// Recipients holds per-member ciphertext for group conversations. Each
+	// entry is keyed by recipient userID and carries that member's own
+	// content/encryptedKey/iv. The hub relays the entire payload to every
+	// member; each client decrypts only its own entry. Absent for 1:1 DMs.
+	Recipients map[string]map[string]string `json:"recipients,omitempty"`
+
 	Token string `json:"token,omitempty"`
 }
 
@@ -128,6 +136,9 @@ type Hub struct {
 	unregister chan *Client
 	mu         sync.RWMutex
 	store      Store
+	// pushHook is invoked when a message targets a user who has no live WS
+	// connection, so the caller can deliver a WebPush notification instead.
+	pushHook func(recipientID, senderID string)
 }
 
 func NewHub() *Hub {
@@ -141,6 +152,11 @@ func NewHub() *Hub {
 
 func (h *Hub) SetStore(s Store) {
 	h.store = s
+}
+
+// SetPushHook registers the callback used to notify offline recipients.
+func (h *Hub) SetPushHook(f func(recipientID, senderID string)) {
+	h.pushHook = f
 }
 
 func (h *Hub) Run() {
@@ -219,6 +235,25 @@ func (h *Hub) route(msg WSMessage) {
 		ack := WSPayload{ID: msg.Payload.ID, Status: "delivered", Timestamp: now()}
 		h.sendToUser(msg.Payload.SenderID, "message_ack", ack)
 
+		// Group / multi-member conversation: relay to every member except sender.
+		if h.store != nil {
+			if members := h.store.GetConversationMembers(msg.Payload.ConversationID); len(members) > 0 {
+				for _, m := range members {
+					if m == msg.Payload.SenderID {
+						continue
+					}
+					if !h.authorizedRecipient(msg.Payload.SenderID, m, msg.Payload.ConversationID) {
+						continue
+					}
+					if !h.sendToUser(m, "message", msg.Payload) && h.pushHook != nil {
+						h.pushHook(m, msg.Payload.SenderID)
+					}
+				}
+				return
+			}
+		}
+
+		// Legacy single-recipient DM (conversation not yet in the membership table).
 		targetID := msg.Payload.RecipientID
 		if targetID == "" {
 			return
@@ -227,7 +262,9 @@ func (h *Hub) route(msg WSMessage) {
 			log.Printf("[WS] dropping %q from %s to unauthorized recipient %s", msg.Type, msg.Payload.SenderID, targetID)
 			return
 		}
-		h.sendToUser(targetID, "message", msg.Payload)
+		if !h.sendToUser(targetID, "message", msg.Payload) && h.pushHook != nil {
+			h.pushHook(targetID, msg.Payload.SenderID)
+		}
 
 	case "contact_request":
 		// A contact request is by definition sent to a non-contact, so it is
@@ -310,6 +347,14 @@ func (h *Hub) authorizedRecipient(sender, recipient, convID string) bool {
 	if sender == recipient {
 		return true
 	}
+	// Primary: the conversation membership table (groups + DMs created via API).
+	if h.store != nil && convID != "" {
+		if h.store.IsConversationMember(convID, sender) && h.store.IsConversationMember(convID, recipient) {
+			return true
+		}
+	}
+	// Legacy fallback: DM convIDs of the form "conv:<uidA>:<uidB>" and the
+	// pre-membership-table contact-key convention.
 	if convID != "" && conversationHasMember(convID, sender) && conversationHasMember(convID, recipient) {
 		return true
 	}

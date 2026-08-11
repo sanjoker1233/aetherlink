@@ -105,6 +105,38 @@ self.addEventListener('fetch', (event) => {
   )
 })
 
+// WebPush: the relay can't read message bodies (E2E), so the push payload is
+// just a generic "you have a new message" ping. We never forward ciphertext.
+self.addEventListener('push', (event) => {
+  let payload = { title: 'CRYPTMessenger', body: 'New encrypted message' }
+  try {
+    if (event.data) {
+      const data = event.data.json()
+      payload = { title: data.title || payload.title, body: data.body || payload.body }
+    }
+  } catch (_) {}
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: '/icons/icon.svg',
+      badge: '/icons/icon.svg',
+      tag: 'crypt-message',
+    })
+  )
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ('focus' in client) return client.focus()
+      }
+      if (self.clients.openWindow) return self.clients.openWindow('/')
+    })
+  )
+})
+
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') {
     self.skipWaiting()

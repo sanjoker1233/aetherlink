@@ -105,10 +105,16 @@ export class WSManager {
     switch (msg.type) {
       case 'message': {
         const p = msg.payload
+        const myId = store.user?.id
         let plainContent = ''
-        if (p.encrypted && store.keyPair?.privateKey) {
+        // Group: each member has its own ciphertext under p.recipients[myId].
+        const mine = p.recipients && myId ? p.recipients[myId] : undefined
+        const encContent = mine?.content ?? p.content
+        const encKey = mine?.encryptedKey ?? p.encryptedKey
+        const encIV = mine?.iv ?? p.iv
+        if (p.encrypted && store.keyPair?.privateKey && encContent && encKey && encIV) {
           try {
-            plainContent = await decryptMessage(p.iv, p.encryptedKey, p.content, store.keyPair.privateKey)
+            plainContent = await decryptMessage(encIV, encKey, encContent, store.keyPair.privateKey)
           } catch {}
         }
         store.addMessage(p.conversationId, {
@@ -197,25 +203,51 @@ export class WSManager {
   async sendEncryptedMessage(conversationId: string, plaintext: string) {
     const store = useStore.getState()
     const conv = store.conversations.find((c) => c.id === conversationId)
-    const recipient = store.contacts.find(
-      (c) => conv?.participants.includes(c.userId)
-    )
     const user = store.user
-    if (!conv || !recipient || !user) return
+    if (!conv || !user) return
 
     const msgId = uid()
+    const ephemeral = store.settings.disappearingTTL > 0
+    const ttl = store.settings.disappearingTTL
+    const members = (conv.participants || []).filter((p) => p && p !== user.id)
+
+    // Group (multi-member): encrypt a separate ciphertext per recipient so
+    // each member can decrypt only their own. The hub relays the whole
+    // payload to every member.
+    if (members.length > 1) {
+      const recipients: Record<string, { content: string; encryptedKey: string; iv: string }> = {}
+      let allEncrypted = true
+      for (const mid of members) {
+        const contact = store.contacts.find((c) => c.userId === mid)
+        if (!contact?.publicKey) { allEncrypted = false; continue }
+        try {
+          const r = await encryptMessage(plaintext, contact.publicKey)
+          recipients[mid] = { content: r.ciphertext, encryptedKey: r.encryptedKey, iv: r.iv }
+        } catch {
+          allEncrypted = false
+        }
+      }
+      const msg: Message = {
+        id: msgId, conversationId, senderId: user.id,
+        content: '', plainContent: plaintext, encrypted: allEncrypted,
+        timestamp: Date.now(), status: 'sending',
+        ephemeral: ephemeral || undefined, ttl: ephemeral ? ttl : undefined,
+      }
+      store.addMessage(conversationId, msg)
+      const { plainContent: _omit, ...wireMsg } = msg
+      this.send('message', { ...wireMsg, recipientId: members[0], recipients })
+      store.updateMessageStatus(msgId, 'sent')
+      return
+    }
+
+    // 1:1 DM (single recipient) — original single-ciphertext path.
+    const recipient = store.contacts.find((c) => conv.participants.includes(c.userId))
+    if (!recipient || !recipient.publicKey) return
     let content = plaintext
     let encrypted = false
     let encryptedKey = ''
     let iv = ''
-
-    // Ephemeral (Snapchat-style): when the sender's disappearing-message TTL
-    // is on, the message carries its own ttl so the recipient honors it
-    // regardless of their own setting.
-    const ephemeral = store.settings.disappearingTTL > 0
-    const ttl = store.settings.disappearingTTL
-
-    if (store.settings.encryptionEnabled && recipient.publicKey) {
+    if (store.settings.encryptionEnabled) {
       try {
         const result = await encryptMessage(plaintext, recipient.publicKey)
         content = result.ciphertext
@@ -224,16 +256,14 @@ export class WSManager {
         encrypted = true
       } catch {}
     }
-
     const msg: Message = {
       id: msgId, conversationId, senderId: user.id,
       content, plainContent: plaintext, encrypted, encryptedKey, iv,
       timestamp: Date.now(), status: 'sending',
-      ephemeral: ephemeral || undefined,
-      ttl: ephemeral ? ttl : undefined,
+      ephemeral: ephemeral || undefined, ttl: ephemeral ? ttl : undefined,
     }
     store.addMessage(conversationId, msg)
-    const { plainContent: _, ...wireMsg } = msg
+    const { plainContent: _omit2, ...wireMsg } = msg
     this.send('message', { ...wireMsg, recipientId: recipient.userId })
     store.updateMessageStatus(msgId, 'sent')
   }

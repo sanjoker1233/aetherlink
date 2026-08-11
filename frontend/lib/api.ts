@@ -113,6 +113,28 @@ export class CryptAPI {
     })
   }
 
+  async createConversation(members: string[], name?: string, type: 'dm' | 'group' = 'group'): Promise<any> {
+    return this.request('/api/conversations', {
+      method: 'POST',
+      body: JSON.stringify({ members, name, type }),
+    })
+  }
+
+  async listConversations(): Promise<any[]> {
+    return this.request('/api/conversations')
+  }
+
+  async getVapidKey(): Promise<{ publicKey: string }> {
+    return this.request('/api/push/vapid')
+  }
+
+  async subscribePush(sub: any): Promise<any> {
+    return this.request('/api/push/subscribe', {
+      method: 'POST',
+      body: JSON.stringify(sub),
+    })
+  }
+
   getWSURL(): string {
     const base = API_BASE.replace(/^http/, 'ws')
     return `${base}/ws`

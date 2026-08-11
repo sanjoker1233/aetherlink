@@ -2,12 +2,13 @@
 
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Search, UserPlus, Radio, Wifi, Satellite, MessageSquare, User, Trash2, ShieldCheck } from 'lucide-react'
+import { Search, UserPlus, Radio, Wifi, Satellite, MessageSquare, User, Trash2, ShieldCheck, Users } from 'lucide-react'
 import { Avatar } from '@/components/ui'
 import { GlassInput } from '@/components/ui/GlassInput'
 import { GlassButton } from '@/components/ui/GlassButton'
 import { AddContactModal } from './AddContactModal'
 import { ContactVerifyModal } from './ContactVerifyModal'
+import { CreateGroupModal } from './CreateGroupModal'
 import { useStore } from '@/lib/store'
 import { generateId } from '@/lib/crypto'
 import type { Contact, Conversation } from '@/lib/types'
@@ -24,6 +25,7 @@ export function ContactsList() {
   const [search, setSearch] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [verifyContact, setVerifyContact] = useState<Contact | null>(null)
+  const [showGroup, setShowGroup] = useState(false)
   const { contacts, user, addConversation, setActiveConversation, setActiveTab, removeContact, setSidebarOpen } = useStore()
 
   const filtered = contacts.filter((c) =>
@@ -63,10 +65,14 @@ export function ContactsList() {
         <GlassButton variant="primary" size="sm" onClick={() => setShowAdd(true)} icon={<UserPlus size={16} />}>
           Add
         </GlassButton>
+        <GlassButton variant="primary" size="sm" onClick={() => setShowGroup(true)} icon={<Users size={16} />}>
+          Group
+        </GlassButton>
       </div>
 
       <AddContactModal open={showAdd} onClose={() => setShowAdd(false)} />
       <ContactVerifyModal contact={verifyContact} onClose={() => setVerifyContact(null)} />
+      <CreateGroupModal open={showGroup} onClose={() => setShowGroup(false)} />
 
       {contacts.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-center">

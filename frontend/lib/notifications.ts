@@ -1,7 +1,13 @@
+import { ensurePushSubscription } from './push'
+
 export function requestNotificationPermission() {
   if (!('Notification' in window)) return
   if (Notification.permission === 'default') {
-    Notification.requestPermission()
+    Notification.requestPermission().then((perm) => {
+      if (perm === 'granted') void ensurePushSubscription()
+    })
+  } else if (Notification.permission === 'granted') {
+    void ensurePushSubscription()
   }
 }
 

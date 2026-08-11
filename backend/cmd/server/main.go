@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"crypto/rand"
+	"encoding/base64"
 	"sync"
 	"time"
 
@@ -22,6 +24,7 @@ import (
 	"github.com/cryptmessenger/cryptmessenger-backend/internal/ratelimit"
 	"github.com/cryptmessenger/cryptmessenger-backend/internal/scheduler"
 	"github.com/cryptmessenger/cryptmessenger-backend/internal/ws"
+	"github.com/cryptmessenger/cryptmessenger-backend/internal/push"
 )
 
 // Rate-limit policies. Chosen per-endpoint based on the threat, not one-size:
@@ -90,6 +93,19 @@ func main() {
 	hub := ws.NewHub()
 	hub.SetStore(store)
 	go hub.Run()
+
+	// WebPush: notify recipients who have no live WS connection. VAPID keys
+	// come from env in production; otherwise an ephemeral pair is generated.
+	pushService := push.New("mailto:push@cryptmessenger.local", os.Getenv("VAPID_PUBLIC_KEY"), os.Getenv("VAPID_PRIVATE_KEY"))
+	hub.SetPushHook(func(recipientID, senderID string) {
+		sub := store.GetPushSubscription(recipientID)
+		if sub == nil {
+			return
+		}
+		if err := pushService.Send(sub, "Nouveau message", "Vous avez un nouveau message chiffré"); err != nil {
+			log.Printf("[push] failed to notify %s: %v", recipientID, err)
+		}
+	})
 
 	meshSim := mesh.NewSimulator()
 	meshUpdates := meshSim.Start()
@@ -408,9 +424,109 @@ func main() {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(contact)
-		})
+			})
 
-		// Network / bridge status — auth-required. Anonymous callers previously
+			// --- Conversations (DM + group membership) ---
+			r.Get("/api/conversations", func(w http.ResponseWriter, r *http.Request) {
+				userID := r.Header.Get("X-User-ID")
+				convs := store.ListConversations(userID)
+				if convs == nil {
+					convs = []map[string]interface{}{}
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(convs)
+			})
+
+			r.Get("/api/conversations/{convID}", func(w http.ResponseWriter, r *http.Request) {
+				userID := r.Header.Get("X-User-ID")
+				convID := chi.URLParam(r, "convID")
+				conv := store.GetConversation(convID)
+				if conv == nil {
+					http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+					return
+				}
+				if !store.IsConversationMember(convID, userID) {
+					http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(conv)
+			})
+
+			r.Post("/api/conversations", func(w http.ResponseWriter, r *http.Request) {
+				userID := r.Header.Get("X-User-ID")
+				if userID == "" {
+					http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+					return
+				}
+				var body struct {
+					Type    string   `json:"type"`
+					Name    string   `json:"name"`
+					Members []string `json:"members"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+					return
+				}
+				// Deduplicate members and guarantee the creator is included.
+				seen := map[string]bool{}
+				members := []string{}
+				add := func(u string) {
+					if u != "" && !seen[u] {
+						seen[u] = true
+						members = append(members, u)
+					}
+				}
+				add(userID)
+				for _, m := range body.Members {
+					add(m)
+				}
+				if len(members) < 2 {
+					http.Error(w, `{"error":"a conversation needs at least 2 members"}`, http.StatusBadRequest)
+					return
+				}
+				convType := body.Type
+				if convType != "group" {
+					convType = "dm"
+				}
+				conv := map[string]interface{}{
+					"id":        auth.GenerateID(),
+					"type":      convType,
+					"name":      body.Name,
+					"members":   members,
+					"createdBy": userID,
+					"createdAt": time.Now().UnixMilli(),
+				}
+				store.SaveConversation(conv)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusCreated)
+				json.NewEncoder(w).Encode(conv)
+				})
+
+				// --- WebPush (offline notifications) ---
+				r.Get("/api/push/vapid", func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					json.NewEncoder(w).Encode(map[string]string{"publicKey": pushService.PublicKey()})
+				})
+
+				r.Post("/api/push/subscribe", func(w http.ResponseWriter, r *http.Request) {
+					userID := r.Header.Get("X-User-ID")
+					if userID == "" {
+						http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+						return
+					}
+					var sub map[string]interface{}
+					if err := json.NewDecoder(r.Body).Decode(&sub); err != nil {
+						http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+						return
+					}
+					store.SavePushSubscription(userID, sub)
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusCreated)
+					json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+				})
+
+				// Network / bridge status — auth-required. Anonymous callers previously
 		// leaked device IDs, node lists and GPS coords (audit finding #16).
 		r.Get("/api/network/status", func(w http.ResponseWriter, r *http.Request) {
 			net := meshSim.GetNetwork()
@@ -489,13 +605,18 @@ func main() {
 // parseAllowedOrigins parses a comma-separated list into a normalized slice.
 // Wildcards are refused — a wildcard on an authed API means any origin can
 // read cross-origin responses once it has a token.
-// securityHeaders attaches defensive HTTP headers to every response. CSP is
-// intentionally permissive for inline/eval because Next.js requires them; a
-// proper nonce-based CSP is the next hardening step. connect-src includes
-// ws:/wss: for the live WebSocket; frame-ancestors 'none' blocks clickjacking.
+// securityHeaders attaches defensive HTTP headers to every response. The CSP
+// uses a per-request nonce and drops 'unsafe-inline'/'unsafe-eval' so the
+// policy is actually meaningful for responses served by THIS server (API/WS
+// JSON — which carry no inline scripts anyway). The Next.js frontend is served
+// from a separate origin/proxy and sets its own nonce-based CSP (see
+// frontend/middleware.ts); both layers harden independently.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
+		// Per-request CSP nonce. Inline scripts served by this server should
+		// carry the nonce; we never emit any, but the policy is correct.
+		nonce := generateNonce()
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
@@ -503,14 +624,25 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
 		h.Set("Content-Security-Policy",
 			"default-src 'self'; "+
-				"script-src 'self' 'unsafe-inline' 'unsafe-eval'; "+
+				"script-src 'self' 'nonce-"+nonce+"'; "+
 				"style-src 'self' 'unsafe-inline'; "+
 				"img-src 'self' data: blob:; "+
 				"connect-src 'self' ws: wss:; "+
 				"font-src 'self' data:; "+
+				"object-src 'none'; "+
+				"base-uri 'self'; "+
 				"frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// generateNonce returns a 128-bit base64url-random value for CSP nonces.
+func generateNonce() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "0000000000000000" // crypto/rand never fails in practice
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 func parseAllowedOrigins(raw string) []string {
