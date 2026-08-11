@@ -227,3 +227,69 @@ Durcissement :
 5. Volume persistant monté sur `DATA_DIR` (`/data`).
 6. Une seule instance backend (stockage JSON + WebSocket).
 7. HTTPS partout : sinon le WebSocket `wss://` et la CSP échoueront depuis une page HTTPS.
+
+## 8. Notifications push (WebPush / VAPID)
+
+Les notifications push permettent d'avertir un destinataire **même quand sa
+WebSocket est fermée** (app en arrière-plan, onglet fermé, hors ligne). Le
+serveur envoie alors un WebPush à la place du message live.
+
+### Prérequis absolus
+- **Contexte sécurisé (HTTPS)**. Les Service Workers et l'API `PushManager`
+  sont refusés en `http://` sauf sur `localhost` (dev). En prod il faut donc
+  HTTPS sur BOTH le frontend ET le backend (le `wss://` en dérive).
+- Le `service worker` (`public/sw.js`) doit être servi à la racine (`/sw.js`).
+  Next.js le sert automatiquement depuis `public/`.
+- **Accès réseau sortant** depuis le backend vers les endpoints WebPush
+  (Mozilla / Google FCM) — nécessaire pour délivrer la notification.
+
+### Clés VAPID
+Le backend signe les push avec une paire de clés VAPID.
+- Si `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` **ne sont pas** définies, le
+  serveur en génère une paire **éphémère au démarrage** : parfait pour le dev,
+  mais toute souscription push devient invalide au redémarrage (les clients
+  doivent se ré-abonner).
+- En prod, générer une paire **stable** et l'injecter via variables d'env :
+
+```bash
+# via le CLI web-push (npm)
+npx web-push generate-vapid-keys
+# -> Private Key: XXXX   Public Key: YYYY
+
+# backend (.env / secret manager)
+VAPID_PUBLIC_KEY=YYYY
+VAPID_PRIVATE_KEY=XXXX
+```
+
+La clé publique exposée au frontend est récupérée via `GET /api/push/vapid`
+(elle renvoie `VAPID_PUBLIC_KEY` si défini, sinon la paire éphémère). Le
+frontend s'abonne donc toujours avec la bonne clé, qu'elle soit fixe ou
+générée.
+
+### Flux
+1. L'utilisateur accorde la permission de notification → `lib/notifications.ts`
+   appelle `lib/push.ts#ensurePushSubscription()`.
+2. Le navigateur s'abonne via `pushManager.subscribe({ applicationServerKey })`
+   et POST la souscription à `/api/push/subscribe` (stockée en `push:<userId>`).
+3. Lors de chaque (re)connexion WS, `ensurePushSubscription()` est rappelé si
+   la permission est déjà `granted` → **ré-abonnement automatique** (utile
+   après rotation de clés VAPID ou expiration de souscription).
+4. Un message destiné à un utilisateur sans WebSocket live déclenche le
+   `pushHook` côté hub → `pushService.Send(...)` → notification affichée par
+   `sw.js` (`event 'push'`). Le clic ouvre/focus l'app (`event
+   'notificationclick'`).
+
+### Sécurité / confidentialité
+- Le payload WebPush ne contient **jamais** le corps du message (chiffrement
+  E2E de bout en bout) : juste un ping générique « Nouveau message chiffré ».
+  Le texte réel n'est déchiffré que dans l'app après ouverture.
+- Les souscriptions sont persistées dans le fichier JSON (`DATA_DIR`) — voir
+  section 2 sur la persistance (volume monté obligatoire en prod).
+
+### Limites connues
+- `webpush-go` livre le payload ; si la souscription est périmée (clé VAPID
+  changée sans ré-abonnement), le push service répond `410 Gone` et le serveur
+  loggue `[push] failed to notify <user>`. Le ré-abonnement automatique au
+  (re)chargement de l'app corrige le cas en pratique.
+- Une seule instance backend (cf. section 2) ; le fan-out push multi-
+  destinataires d'un groupe repose sur la même boucle hub déjà testée.
