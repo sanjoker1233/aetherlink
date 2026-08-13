@@ -214,6 +214,38 @@ server {
 
 TLS : `certbot --nginx -d app.example.com -d api.example.com` (renouvellement auto via timer systemd).
 
+## 6b. VPS avec Caddy (recommandé — plus simple que nginx+certbot)
+
+Le dépôt inclut un `Caddyfile` (racine) et un service `caddy` dans
+`docker-compose.yml`. Caddy termine le TLS et obtient automatiquement un
+certificat Let's Encrypt (renouvellement auto). Il proxyfie `/api` et `/ws`
+vers le backend, le reste vers le frontend — tout sur un seul domaine HTTPS.
+
+`.env` (non versionné) :
+
+```bash
+DOMAIN=app.example.com
+CADDY_EMAIL=admin@example.com
+JWT_SECRET=<openssl rand -base64 48>
+ALLOWED_ORIGINS=https://app.example.com
+NEXT_PUBLIC_API_URL=https://app.example.com
+```
+
+```bash
+docker compose build
+docker compose up -d
+```
+
+- DNS : `A app.example.com -> IP du VPS`. Ouvrir les ports 80/443 (le 80 sert
+  uniquement au défi ACME ; Caddy redirige ensuite tout le trafic en HTTPS).
+- `NEXT_PUBLIC_API_URL` et `ALLOWED_ORIGINS` pointent sur le **même** domaine
+  que Caddy : le navigateur charge la SPA en HTTPS et ses appels `/api`
+  repassent par Caddy (reverse-proxy vers le backend). Zéro mixed content.
+- Les certs ACME persistent dans le volume `caddy-data` (`/data/caddy`).
+- Test local sans domaine : utiliser un `Caddyfile` avec `tls internal`
+  (certificat signé localement). En prod, utiliser le `Caddyfile` racine avec
+  `DOMAIN` + `CADDY_EMAIL` réels.
+
 Durcissement :
 - Firewall : n'exposer que 80/443 ; retirer les `ports:` du compose et passer par le réseau Docker + nginx si nginx est conteneurisé.
 - Sauvegarder régulièrement le volume `backend-data` (`docker run --rm -v aetherlink_backend-data:/data -v $PWD:/b alpine tar czf /b/backup.tgz /data`).

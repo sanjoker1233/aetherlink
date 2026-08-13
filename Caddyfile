@@ -1,0 +1,33 @@
+{
+	# Email d'enregistrement Let's Encrypt (OBLIGATOIRE en prod, configurer
+	# CADDY_EMAIL). En local, utiliser le Caddyfile de test (tls internal).
+	email {$CADDY_EMAIL}
+
+	# Persister les certificats ACME entre les redémarrages : monter un volume
+	# sur /data/caddy dans docker-compose.
+	storage file_system {
+		root /data/caddy
+	}
+
+	# Logs d'ACME utiles en cas de souci de délivrance de certificat.
+	# debug
+}
+
+# DOMAIN est injecté par env (ex: app.example.com). Défaut localhost (test).
+{$DOMAIN:localhost} {
+	encode gzip zstd
+
+	# API REST + WebSocket de signalisation -> backend Go
+	handle /api/* {
+		reverse_proxy backend:9090
+	}
+	handle /ws {
+		reverse_proxy backend:9090
+	}
+
+	# Tout le reste -> frontend Next.js (Caddy gère le upgrade WebSocket
+	# automatiquement sur /ws ci-dessus).
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

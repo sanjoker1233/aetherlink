@@ -4,35 +4,52 @@ services:
       context: ./backend
     environment:
       # OBLIGATOIRE : >= 32 octets. A fournir via un fichier .env non commite.
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET est obligatoire (>=32 octets)}
-      # CSV d'origines exactes, pas de wildcard.
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET est obligatoire (>=32 octets)}"
+      # Origine exacte du frontend (meme domaine que Caddy en HTTPS). Pas de wildcard.
+      # Ex: https://app.example.com
+      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:?ALLOWED_ORIGINS requis (ex: https://app.example.com)}"
       BIND: ":9090"
       PORT: "9090"
       DATA_DIR: /data
-    ports:
-      - "9090:9090"
     volumes:
       - backend-data:/data
     networks:
       - aetherlink
     restart: unless-stopped
+    # Pas de ports publics : le backend n'est joignable que via Caddy.
 
   frontend:
     build:
       context: ./frontend
       args:
-        # NOTE : cette URL est inline dans le bundle et donc resolue PAR LE
-        # NAVIGATEUR. "http://backend:9090" ne fonctionne QUE si le navigateur
-        # tourne dans le meme reseau Docker. En pratique, mettre l'URL publique
-        # du backend (ex: https://api.example.com) via NEXT_PUBLIC_API_URL.
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://backend:9090}
+        # URL publique HTTPS du backend TELLE QUE VUE PAR LE NAVIGATEUR.
+        # Ex: https://app.example.com (meme domaine que Caddy). Valeur inlinee
+        # dans le bundle Next.js -> rebuild si on change de domaine.
+        NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:?NEXT_PUBLIC_API_URL requis (ex: https://app.example.com)}"
     environment:
       PORT: "3000"
       HOSTNAME: 0.0.0.0
-    ports:
-      - "3000:3000"
     depends_on:
+      - backend
+    networks:
+      - aetherlink
+    restart: unless-stopped
+
+  # Reverse proxy TLS (terminaison HTTPS + auto-certificat Let's Encrypt).
+  # Proxyfie /api et /ws vers le backend, le reste vers le frontend.
+  caddy:
+    image: caddy:2
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data/caddy
+    environment:
+      DOMAIN: "${DOMAIN:?DOMAIN requis (ex: app.example.com)}"
+      CADDY_EMAIL: "${CADDY_EMAIL:?CADDY_EMAIL requis pour Let's Encrypt}"
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - frontend
       - backend
     networks:
       - aetherlink
@@ -40,6 +57,7 @@ services:
 
 volumes:
   backend-data:
+  caddy-data:
 
 networks:
   aetherlink:
