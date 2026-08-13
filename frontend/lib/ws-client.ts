@@ -203,8 +203,18 @@ export class WSManager {
 
       case 'typing': {
         const p = msg.payload
-        if (p.conversationId) {
+        // Honor the recipient's privacy setting: don't surface "typing…" if
+        // they've disabled typing indicators.
+        if (p.conversationId && store.settings.typingEnabled) {
           store.setTyping(p.conversationId, !!p.typing)
+        }
+        break
+      }
+
+      case 'message_delete': {
+        const p = msg.payload
+        if (p.conversationId && p.id) {
+          store.removeMessage(p.conversationId, p.id)
         }
         break
       }
@@ -343,6 +353,11 @@ export class WSManager {
 
   sendTyping(conversationId: string, recipientId: string, typing: boolean) {
     this.send('typing', { conversationId, recipientId, typing })
+  }
+
+  /** Unsend a message: tell every peer in the conversation to drop it. */
+  sendMessageDelete(conversationId: string, messageId: string, recipientId: string) {
+    this.send('message_delete', { conversationId, id: messageId, recipientId })
   }
 }
 

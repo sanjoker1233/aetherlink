@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { X, Lock, Shield, Clock, User, Key, CheckCheck, AlertCircle, Send, FileText, Image, Trash2 } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import { GlassButton } from '@/components/ui/GlassButton'
+import { wsManager } from '@/lib/ws-client'
 import { useDialogA11y } from '@/lib/useDialogA11y'
 
 export function MessageDetail() {
@@ -21,6 +22,7 @@ export function MessageDetail() {
   const { msg, convId } = selectedMessage
   const conv = conversations.find((c) => c.id === convId)
   const isSent = msg.senderId === user?.id
+  const peer = conv?.participants.find((p) => p !== user?.id)
 
   const statusLabel: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
     sending: { label: 'Sending...', color: 'text-gray-500', icon: <Send size={12} /> },
@@ -33,6 +35,11 @@ export function MessageDetail() {
   const hasAttachments = msg.content?.includes('[📷') || msg.content?.includes('[📎')
 
   const handleDelete = () => {
+    if (isSent && peer) {
+      // Delete for everyone: relay the unsend to the peer (the server enforces
+      // that only the original author can unsend), then drop it locally too.
+      wsManager.sendMessageDelete(convId, msg.id, peer)
+    }
     removeMessage(convId, msg.id)
     setSelectedMessage(null)
   }
@@ -174,7 +181,7 @@ export function MessageDetail() {
                 onClick={handleDelete}
                 icon={<Trash2 size={14} />}
               >
-                Delete this message
+                {isSent ? 'Delete for everyone' : 'Delete for me'}
               </GlassButton>
             </div>
           </div>

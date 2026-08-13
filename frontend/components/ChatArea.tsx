@@ -85,6 +85,7 @@ export function ChatArea() {
     if (!activeConversationId || !activeConv) return
     const peer = activeConv.participants.find((p) => p !== user?.id)
     if (!peer) return
+    if (!settings.typingEnabled) return
     const now = Date.now()
     if (now - lastTypingRef.current > 2000) {
       lastTypingRef.current = now
@@ -292,7 +293,7 @@ export function ChatArea() {
             <input
               value={input}
               aria-label="Message"
-              onChange={(e) => setInput(e.target.value)}
+              onChange={handleInputChange}
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
               placeholder="E2E encrypted message..."
               className="glass-input w-full pr-4 text-base"

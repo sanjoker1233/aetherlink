@@ -133,6 +133,11 @@ export function SettingsPage() {
         </div>
         <Toggle label="Encryption E2E" value={settings.encryptionEnabled} onChange={(v) => updateSettings({ encryptionEnabled: v })} />
         <Toggle label="Notifications" value={settings.notificationsEnabled} onChange={(v) => updateSettings({ notificationsEnabled: v })} />
+        <Toggle
+          label="Typing indicators"
+          value={settings.typingEnabled}
+          onChange={(v) => updateSettings({ typingEnabled: v })}
+        />
         <div className="pt-3 space-y-2">
           <p className="text-sm text-gray-300">Temporary message display</p>
           <p className="text-[10px] text-gray-500">Decrypted messages re-lock automatically after:</p>

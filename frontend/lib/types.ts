@@ -105,6 +105,8 @@ export interface AppSettings {
   offlineMode: boolean
   decryptDuration: number
   disappearingTTL: number
+  /** Typing indicators: send our own presence and show peers' "typing…". */
+  typingEnabled: boolean
 }
 
 export type TabType = 'chats' | 'contacts' | 'network' | 'settings'

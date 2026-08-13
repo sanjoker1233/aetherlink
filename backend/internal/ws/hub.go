@@ -106,6 +106,12 @@ type WSPayload struct {
 	Recipients map[string]map[string]string `json:"recipients,omitempty"`
 
 	Token string `json:"token,omitempty"`
+
+	// Typing presence: true while the peer is composing a message, false when
+	// they stop. Relayed verbatim between peers so the recipient can show a
+	// "typing…" indicator. (Was previously dropped because WSPayload had no
+	// Typing field — the boolean never survived the round-trip.)
+	Typing bool `json:"typing,omitempty"`
 }
 
 type WSMessage struct {
@@ -141,6 +147,11 @@ type Hub struct {
 	// pushHook is invoked when a message targets a user who has no live WS
 	// connection, so the caller can deliver a WebPush notification instead.
 	pushHook func(recipientID, senderID string)
+
+	// msgOwners records the authenticated sender of each live message so that
+	// only the original author can later "delete for everyone" it. route()
+	// runs on the single hub goroutine, so this map needs no extra locking.
+	msgOwners map[string]string
 }
 
 func NewHub() *Hub {
@@ -149,6 +160,7 @@ func NewHub() *Hub {
 		broadcast:  make(chan []byte, 256),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
+		msgOwners:  make(map[string]string),
 	}
 }
 
@@ -236,6 +248,10 @@ func (h *Hub) route(msg WSMessage) {
 		}
 		ack := WSPayload{ID: msg.Payload.ID, Status: "delivered", Timestamp: now()}
 		h.sendToUser(msg.Payload.SenderID, "message_ack", ack)
+
+		// Record authorship so only the sender may later delete this message
+		// for everyone (see the message_delete case below).
+		h.msgOwners[msg.Payload.ID] = msg.Payload.SenderID
 
 		// Group / multi-member conversation: relay to every member except sender.
 		if h.store != nil {
@@ -347,6 +363,45 @@ func (h *Hub) route(msg WSMessage) {
 			return
 		}
 		h.sendToUser(msg.Payload.RecipientID, "message_read", msg.Payload)
+
+	case "message_delete":
+		// Unsend ("delete for everyone"): the authenticated sender removes a
+		// message for every member of the conversation. Three layers of
+		// authorization:
+		//   1. sender identity is server-set (client.readPump overwrote SenderID),
+		//   2. the deleter must be the message's original author (msgOwners),
+		//   3. the deleter must be a conversation member (authorizedRecipient).
+		if msg.Payload.ConversationID == "" || msg.Payload.ID == "" {
+			return
+		}
+		owner, ok := h.msgOwners[msg.Payload.ID]
+		if !ok || owner != msg.Payload.SenderID {
+			log.Printf("[WS] dropping message_delete: sender %s is not the author of %s", msg.Payload.SenderID, msg.Payload.ID)
+			return
+		}
+		if h.store != nil {
+			if members := h.store.GetConversationMembers(msg.Payload.ConversationID); len(members) > 0 {
+				for _, m := range members {
+					if m == msg.Payload.SenderID {
+						continue
+					}
+					if !h.authorizedRecipient(msg.Payload.SenderID, m, msg.Payload.ConversationID) {
+						continue
+					}
+					h.sendToUser(m, "message_delete", msg.Payload)
+				}
+				return
+			}
+		}
+		// Legacy single-recipient DM (conversation not yet in the membership table).
+		targetID := msg.Payload.RecipientID
+		if targetID == "" {
+			return
+		}
+		if !h.authorizedRecipient(msg.Payload.SenderID, targetID, msg.Payload.ConversationID) {
+			return
+		}
+		h.sendToUser(targetID, "message_delete", msg.Payload)
 	}
 }
 

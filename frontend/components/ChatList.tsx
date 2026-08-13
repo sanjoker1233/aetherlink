@@ -8,12 +8,13 @@ import { useStore } from '@/lib/store'
 import { api } from '@/lib/api'
 import { wsManager } from '@/lib/ws-client'
 import type { ContactRequest } from '@/lib/types'
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 
 export function ChatList() {
   const {
     conversations, activeConversationId, setActiveConversation,
     contactRequests, user, contacts, setSidebarOpen, pendingRequests,
+    messages, typing,
   } = useStore()
   const closeSidebar = () => { if (window.innerWidth < 768) setSidebarOpen(false) }
   const [showSearch, setShowSearch] = useState(false)
@@ -23,7 +24,28 @@ export function ChatList() {
   const [sendingTo, setSendingTo] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
-  // Debounced search
+  // Global message search across all conversations (contact name + bodies).
+  const [msgMode, setMsgMode] = useState(false)
+  const [msgQuery, setMsgQuery] = useState('')
+  const msgResults = useMemo(() => {
+    if (!msgMode || !msgQuery.trim()) return null
+    const q = msgQuery.trim().toLowerCase()
+    const out: { conv: any; snippet?: string }[] = []
+    for (const conv of conversations) {
+      const nameHit = (conv.name || '').toLowerCase().includes(q)
+      let snippet: string | undefined
+      const thread = messages[conv.id] || []
+      // Walk backwards so the *latest* matching message becomes the snippet.
+      for (let i = thread.length - 1; i >= 0; i--) {
+        const body = (thread[i].plainContent || thread[i].content || '').toLowerCase()
+        if (body.includes(q)) { snippet = thread[i].plainContent || thread[i].content; break }
+      }
+      if (nameHit || snippet) out.push({ conv, snippet })
+    }
+    return out
+  }, [msgMode, msgQuery, conversations, messages])
+
+  // Debounced user search (by name / fingerprint)
   useEffect(() => {
     if (!query.trim() || !showSearch) {
       setResults([])
@@ -64,9 +86,23 @@ export function ChatList() {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="p-3 border-b border-white/5">
-        <GlassButton variant="primary" size="sm" className="w-full" onClick={() => { setShowSearch(!showSearch); setQuery('') }} icon={<Search size={14} />}>
-          New conversation
-        </GlassButton>
+        <div className="flex gap-2">
+          <GlassButton
+            variant="primary" size="sm" className="flex-1"
+            onClick={() => { setShowSearch(!showSearch); setQuery(''); if (!showSearch) { setMsgMode(false); setMsgQuery('') } }}
+            icon={<UserPlus size={14} />}
+          >
+            New conversation
+          </GlassButton>
+          <GlassButton
+            variant={msgMode ? 'primary' : 'ghost'} size="sm" className="shrink-0"
+            onClick={() => { setMsgMode(!msgMode); setMsgQuery(''); if (!msgMode) { setShowSearch(false); setQuery('') } }}
+            aria-label="Search messages"
+            icon={<Search size={14} />}
+          >
+            Messages
+          </GlassButton>
+        </div>
 
         <AnimatePresence>
           {showSearch && (
@@ -140,6 +176,36 @@ export function ChatList() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        <AnimatePresence>
+          {msgMode && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }} className="mt-2"
+            >
+              <div className="relative flex-1">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                <input
+                  autoFocus
+                  value={msgQuery}
+                  type="search"
+                  aria-label="Search messages"
+                  onChange={(e) => setMsgQuery(e.target.value)}
+                  placeholder="Search messages…"
+                  className="glass-input w-full text-base pl-9 pr-8"
+                />
+                {msgQuery && (
+                  <button type="button" aria-label="Clear search" onClick={() => setMsgQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2">
+                    <X size={14} className="text-gray-500" />
+                  </button>
+                )}
+              </div>
+              {msgQuery && msgResults && msgResults.length === 0 && (
+                <p className="text-xs text-gray-500 text-center py-3">No messages found</p>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Incoming contact requests */}
@@ -174,31 +240,54 @@ export function ChatList() {
             <p className="text-xs text-gray-600 mt-1">Search for a user to start</p>
           </div>
         )}
-        {conversations.map((conv) => (
-          <motion.button
-            key={conv.id}
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            onClick={() => { setActiveConversation(conv.id); closeSidebar() }}
-            className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left ${
-              activeConversationId === conv.id ? 'bg-amber-400/10 border border-amber-400/15' : 'hover:bg-white/[0.04]'
-            }`}
-          >
-            <Avatar name={conv.name || '?'} status="online" size="md" />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium truncate">{conv.name}</span>
-                <div className="flex items-center gap-1 shrink-0">
-                  {conv.encryptionEnabled && <Lock size={10} className="text-neon-cyan" />}
-                  {conv.unreadCount > 0 && (
-                    <span className="text-[10px] bg-neon-cyan/20 text-neon-cyan px-1.5 py-0.5 rounded-full font-medium">{conv.unreadCount}</span>
-                  )}
+        {(msgMode && msgQuery.trim())
+          ? (msgResults || []).map(({ conv, snippet }) => (
+            <motion.button
+              key={conv.id}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              onClick={() => { setActiveConversation(conv.id); setMsgMode(false); setMsgQuery(''); closeSidebar() }}
+              className="w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left hover:bg-white/[0.04]"
+            >
+              <Avatar name={conv.name || '?'} status="online" size="md" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium truncate">{conv.name}</span>
+                  {conv.encryptionEnabled && <Lock size={10} className="text-neon-cyan shrink-0" />}
                 </div>
+                <p className="text-xs text-gray-500 truncate mt-0.5">{snippet || 'New conversation'}</p>
               </div>
-              <p className="text-xs text-gray-500 truncate mt-0.5">{conv.lastMessage?.content || 'New conversation'}</p>
-            </div>
-          </motion.button>
-        ))}
+            </motion.button>
+          ))
+          : conversations.map((conv) => (
+            <motion.button
+              key={conv.id}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              onClick={() => { setActiveConversation(conv.id); closeSidebar() }}
+              className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left ${
+                activeConversationId === conv.id ? 'bg-amber-400/10 border border-amber-400/15' : 'hover:bg-white/[0.04]'
+              }`}
+            >
+              <Avatar name={conv.name || '?'} status="online" size="md" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium truncate">{conv.name}</span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {conv.encryptionEnabled && <Lock size={10} className="text-neon-cyan" />}
+                    {conv.unreadCount > 0 && (
+                      <span className="text-[10px] bg-neon-cyan/20 text-neon-cyan px-1.5 py-0.5 rounded-full font-medium">{conv.unreadCount}</span>
+                    )}
+                  </div>
+                </div>
+                {typing[conv.id] ? (
+                  <p className="text-xs text-neon-cyan truncate mt-0.5 animate-pulse">typing…</p>
+                ) : (
+                  <p className="text-xs text-gray-500 truncate mt-0.5">{conv.lastMessage?.content || 'New conversation'}</p>
+                )}
+              </div>
+            </motion.button>
+          ))}
       </div>
     </div>
   )

@@ -94,6 +94,7 @@ const defaultSettings: AppSettings = {
   theme: 'dark', preferredNetwork: 'hybrid', autoSwitchNetwork: true,
   encryptionEnabled: true, notificationsEnabled: true, offlineMode: false,
   decryptDuration: 0, disappearingTTL: 0,
+  typingEnabled: true,
 }
 
 // SECURITY: never persist decrypted message bodies. `plainContent` is dropped
@@ -237,10 +238,21 @@ export const useStore = create<AppState>((set, get) => ({
   },
   removeMessage: (convId, msgId) => {
     const messages = { ...get().messages }
+    let removed: Message | undefined
     if (messages[convId]) {
+      removed = messages[convId].find((m) => m.id === msgId)
       messages[convId] = messages[convId].filter((m) => m.id !== msgId)
     }
-    set({ messages }); saveToStorage({ messages })
+    // If we just removed the conversation's last message, rewind lastMessage
+    // to the new tail so the list preview doesn't show a deleted message.
+    const conversations = get().conversations.map((c) => {
+      if (c.id === convId && c.lastMessage && removed && c.lastMessage.id === msgId) {
+        const rest = messages[convId] || []
+        return { ...c, lastMessage: rest[rest.length - 1] }
+      }
+      return c
+    })
+    set({ messages, conversations }); saveToStorage({ messages, conversations })
   },
 
   setMeshNetwork: (n) => set({ meshNetwork: n }),
@@ -345,3 +357,4 @@ export const useStore = create<AppState>((set, get) => ({
     })
   },
 }))
+
