@@ -27,7 +27,7 @@ echo "   OK ($(stat -c%s cryptmessenger-server 2>/dev/null || stat -f%z cryptmes
 
 echo ""
 echo "Starting backend on :$BACKEND_PORT..."
-JWT_SECRET=$JWT_SECRET PORT=$BACKEND_PORT ./cryptmessenger-server &
+JWT_SECRET=$JWT_SECRET PORT=$BACKEND_PORT BIND="${BIND:-:9090}" ./cryptmessenger-server &
 BACKEND_PID=$!
 sleep 1
 
