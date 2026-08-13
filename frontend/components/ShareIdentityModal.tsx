@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useEffect, useId, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Copy, Check, Share2, QrCode, Download } from 'lucide-react'
 import { GlassCard } from '@/components/ui/GlassCard'
@@ -58,14 +59,19 @@ export function ShareIdentityModal({ open, onClose }: Props) {
     link.click()
   }
 
-  return (
+  const [portalMounted, setPortalMounted] = useState(false)
+  useEffect(() => setPortalMounted(true), [])
+  if (!portalMounted) return null
+
+  return createPortal(
     <AnimatePresence>
       {open && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-[60] overflow-y-auto bg-black/60 backdrop-blur-sm"
           onClick={onClose}
         >
+          <div className="flex min-h-full items-center justify-center p-4 pb-28">
           <motion.div
             ref={dialogRef}
             role="dialog"
@@ -74,7 +80,7 @@ export function ShareIdentityModal({ open, onClose }: Props) {
             tabIndex={-1}
             initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm"
+            className="w-full max-w-sm my-auto"
           >
             <GlassCard hover={false} className="p-6">
               <div className="flex items-center justify-between mb-4">
@@ -91,7 +97,7 @@ export function ShareIdentityModal({ open, onClose }: Props) {
                   ref={canvasRef}
                   aria-label="QR code containing your identity link"
                   role="img"
-                  className="rounded-xl shadow-neon"
+                  className="rounded-xl shadow-neon w-[260px] max-w-full aspect-square h-auto"
                   width={260}
                   height={260}
                 />
@@ -104,7 +110,7 @@ export function ShareIdentityModal({ open, onClose }: Props) {
                 </p>
               </div>
 
-              <div className="glass-panel p-3 mb-4">
+              <div className="glass-panel p-3 mb-4 max-h-32 overflow-y-auto">
                 <p className="text-[10px] text-gray-500 mb-1">Invite link</p>
                 <p className="text-xs text-gray-400 break-all font-mono">{uri}</p>
               </div>
@@ -122,8 +128,10 @@ export function ShareIdentityModal({ open, onClose }: Props) {
               </div>
             </GlassCard>
           </motion.div>
+          </div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   )
 }
