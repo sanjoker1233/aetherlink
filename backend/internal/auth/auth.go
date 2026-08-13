@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -146,9 +147,13 @@ func issueToken(userID, displayName string) (string, error) {
 // Fingerprint is the SHA-256 of the base64 public key, truncated to 128 bits
 // (16 bytes). 128 bits is far above the collision threshold and matches the
 // client-side computation so user lookups line up.
+// Fingerprint is the SHA-256 of the base64 public key, truncated to 128 bits
+// (16 bytes). 128 bits is far above the collision threshold and matches the
+// client-side computation so user lookups line up. Returned UPPERCASE to match
+// the client's canonical representation (used for safety numbers and lookups).
 func Fingerprint(publicKey string) string {
 	hash := sha256.Sum256([]byte(publicKey))
-	return hex.EncodeToString(hash[:16])
+	return strings.ToUpper(hex.EncodeToString(hash[:16]))
 }
 
 // RegisterInit validates the submitted public key, mints a random 32-byte

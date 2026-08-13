@@ -223,7 +223,7 @@ export function ChatArea() {
                   {showDecryptToggle && (
                     <motion.button
                       onClick={(e) => { e.stopPropagation(); toggleDecrypt(msg.id) }}
-                      className={`p-1 rounded-md transition-all ${
+                      className={`p-1.5 rounded-md transition-all min-w-[32px] min-h-[32px] flex items-center justify-center ${
                         isUnlocked
                           ? 'bg-amber-400/20 text-amber-400'
                           : 'text-gray-500 hover:text-amber-400'
@@ -295,7 +295,7 @@ export function ChatArea() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
               placeholder="E2E encrypted message..."
-              className="glass-input w-full pr-4"
+              className="glass-input w-full pr-4 text-base"
             />
           </div>
           <GlassButton type="submit" variant="primary" size="md" icon={<Send size={16} />}>

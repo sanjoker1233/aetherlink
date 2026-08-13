@@ -66,6 +66,10 @@ func authMiddleware(next http.Handler) http.Handler {
 var (
 	registeredUsers   = make(map[string]map[string]string)
 	registeredUsersMu sync.RWMutex
+	// store is the JSON-backed persistence layer. Declared at package level so
+	// helper functions (e.g. conversationHasMember) can consult conversation
+	// membership without threading it through every call.
+	store *db.Store
 )
 
 func main() {
@@ -88,7 +92,7 @@ func main() {
 		dataDir = "./data"
 	}
 	dbPath := dataDir + "/cryptmessenger-db.json"
-	store := db.NewStore(dbPath)
+	store = db.NewStore(dbPath)
 
 	hub := ws.NewHub()
 	hub.SetStore(store)
@@ -287,7 +291,9 @@ func main() {
 		r.Use(authMiddleware)
 
 		r.Get("/api/users/lookup", func(w http.ResponseWriter, r *http.Request) {
-			fp := r.URL.Query().Get("fp")
+			// Normalize to the server's canonical UPPERCASE fingerprint so a
+			// client-submitted (or pasted) lowercase value still matches.
+			fp := strings.ToUpper(r.URL.Query().Get("fp"))
 			w.Header().Set("Content-Type", "application/json")
 			if fp == "" {
 				json.NewEncoder(w).Encode([]map[string]string{})
@@ -664,12 +670,16 @@ func parseAllowedOrigins(raw string) []string {
 	return out
 }
 
-// conversationHasMember does a minimal membership check based on the naming
-// convention "conv:<uidA>:<uidB>" (or any convID containing the user ID as a
-// segment). Replace with a real membership table once the schema supports it.
+// conversationHasMember checks whether userID may access convID. New
+// conversations (DMs + groups) are stored with an explicit membership table,
+// so the authoritative check is the store. A legacy fallback preserves the old
+// "conv:<uidA>:<uidB>" string convention for any pre-membership data.
 func conversationHasMember(convID, userID string) bool {
 	if convID == "" || userID == "" {
 		return false
+	}
+	if store != nil && store.IsConversationMember(convID, userID) {
+		return true
 	}
 	for _, seg := range strings.Split(convID, ":") {
 		if seg == userID {

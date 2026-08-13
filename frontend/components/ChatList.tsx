@@ -13,14 +13,13 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 export function ChatList() {
   const {
     conversations, activeConversationId, setActiveConversation,
-    contactRequests, user, contacts, setSidebarOpen,
+    contactRequests, user, contacts, setSidebarOpen, pendingRequests,
   } = useStore()
   const closeSidebar = () => { if (window.innerWidth < 768) setSidebarOpen(false) }
   const [showSearch, setShowSearch] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
-  const [sentRequests, setSentRequests] = useState<Set<string>>(new Set())
   const [sendingTo, setSendingTo] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
@@ -45,9 +44,13 @@ export function ChatList() {
   const handleSendRequest = useCallback((target: any) => {
     setSendingTo(target.userId)
     wsManager.sendContactRequest(target.userId)
-    setSentRequests((prev) => new Set(prev).add(target.userId))
-    setTimeout(() => setSendingTo(null), 1500)
+    setTimeout(() => setSendingTo(null), 1000)
   }, [])
+
+  const openConversation = useCallback((userId: string) => {
+    const conv = conversations.find((c) => c.participants?.includes(userId))
+    if (conv) { setActiveConversation(conv.id); closeSidebar() }
+  }, [conversations, setActiveConversation])
 
   const handleAccept = useCallback((req: ContactRequest) => {
     wsManager.acceptContact(req)
@@ -82,7 +85,7 @@ export function ChatList() {
                     aria-label="Search users by name or fingerprint"
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="Name or fingerprint..."
-                    className="glass-input w-full text-sm pl-9 pr-8"
+                    className="glass-input w-full text-base pl-9 pr-8"
                   />
                   {query && (
                     <button type="button" aria-label="Clear search" onClick={() => setQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2">
@@ -103,11 +106,12 @@ export function ChatList() {
               )}
 
               {results.length > 0 && (
-                <div className="max-h-48 overflow-y-auto space-y-1">
+                <div className="max-h-52 overflow-y-auto space-y-1">
                   {results.map((u) => (
                     <div
                       key={u.userId}
-                      className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/5 transition-colors"
+                      onClick={() => { if (isContact(u.userId)) openConversation(u.userId) }}
+                      className={`flex items-center gap-3 p-3 rounded-xl transition-colors ${isContact(u.userId) ? 'cursor-pointer hover:bg-white/5' : 'hover:bg-white/5'}`}
                     >
                       <Avatar name={u.displayName || '?'} size="sm" status="online" />
                       <div className="flex-1 min-w-0">
@@ -116,8 +120,8 @@ export function ChatList() {
                       </div>
                       {isContact(u.userId) ? (
                         <span className="text-[10px] text-green-400 flex items-center gap-1 shrink-0"><UserCheck size={12} /> Contact</span>
-                      ) : sentRequests.has(u.userId) ? (
-                        <span className="text-[10px] text-neon-amber flex items-center gap-1 shrink-0"><UserPlus size={12} /> Sent</span>
+                      ) : pendingRequests.includes(u.userId) ? (
+                        <span className="text-[10px] text-neon-amber flex items-center gap-1 shrink-0"><UserPlus size={12} /> Pending</span>
                       ) : (
                         <GlassButton
                           size="sm"

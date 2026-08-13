@@ -15,3 +15,12 @@ backend/aetherlink-server
 
 # go build default output (regenerate with: go build ./cmd/server/)
 backend/server
+
+# runtime secrets (JWT secret generated at startup) — NEVER commit
+.jwt.env
+
+# runtime server data (SQLite with user keys/contacts) — NEVER commit
+backend/data/
+
+# TypeScript incremental build cache
+*.tsbuildinfo

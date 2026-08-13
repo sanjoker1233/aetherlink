@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // legacyPath is the world-readable /tmp location the store used to live at.
@@ -146,6 +147,40 @@ func (s *Store) RemovePendingContactRequest(requestID string) {
 	s.persist()
 }
 
+// SaveContactPair records a mutual contact relationship between two users so
+// that subsequent private (DM) messages between them are authorized
+// server-side. authorizedRecipient() consults these keys, and the client
+// generates DM conversation IDs of the form "<uidA>__<uidB>" (not the
+// "conv:<a>:<b>" shape the legacy membership check expects), so without this
+// record two online contacts could never exchange messages. Written when a
+// contact request is accepted.
+func (s *Store) SaveContactPair(a, b string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data := map[string]interface{}{"a": a, "b": b, "since": time.Now().Unix()}
+	s.users["contact:"+a+":"+b] = data
+	s.users["contact:"+b+":"+a] = data
+	s.persist()
+}
+
+// RemovePendingRequestsBetween deletes any stored pending contact requests
+// exchanged in either direction between a and b. Called when a request is
+// accepted so it is not redelivered to the recipient on their next connect.
+func (s *Store) RemovePendingRequestsBetween(a, b string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, v := range s.users {
+		if len(k) > 12 && k[:12] == "pending_req:" {
+			from, _ := v["fromUserId"].(string)
+			to, _ := v["toUserId"].(string)
+			if (from == a && to == b) || (from == b && to == a) {
+				delete(s.users, k)
+			}
+		}
+	}
+	s.persist()
+}
+
 func (s *Store) SavePendingAccept(requestID string, data map[string]interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -190,6 +225,19 @@ func (s *Store) SaveConversation(conv map[string]interface{}) {
 	id, _ := conv["id"].(string)
 	if id == "" {
 		return
+	}
+	// Normalize members to []interface{} so the membership checks
+	// (isMember / GetConversationMembers) — which type-assert the stored slice
+	// as []interface{} — work whether the conversation came from JSON (where
+	// arrays unmarshal as []interface{}) or was built in Go (where it may be a
+	// typed []string). Without this, API-created conversations always report
+	// "no members" and message sends are rejected with 403.
+	if mem, ok := conv["members"].([]string); ok {
+		norm := make([]interface{}, len(mem))
+		for i, m := range mem {
+			norm[i] = m
+		}
+		conv["members"] = norm
 	}
 	s.conversations[id] = conv
 	s.persist()

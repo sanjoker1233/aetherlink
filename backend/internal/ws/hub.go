@@ -17,6 +17,8 @@ type Store interface {
 	SavePendingContactRequest(requestID string, data map[string]interface{})
 	GetPendingContactRequests(userID string) []map[string]interface{}
 	RemovePendingContactRequest(requestID string)
+	SaveContactPair(a, b string)
+	RemovePendingRequestsBetween(a, b string)
 	SavePendingAccept(requestID string, data map[string]interface{})
 	GetPendingAccepts(userID string) []map[string]interface{}
 	RemovePendingAccept(requestID string)
@@ -272,13 +274,18 @@ func (h *Hub) route(msg WSMessage) {
 		if msg.Payload.ToUserID == "" || msg.Payload.FromUserID == "" {
 			return
 		}
-		if !h.sendToUser(msg.Payload.ToUserID, "contact_request", msg.Payload) && h.store != nil {
+		// Persist the pending request even when the recipient is currently
+		// online: it authorizes the eventual contact_accept (which otherwise
+		// fails authorizedRecipient) and lets an offline recipient pick it up
+		// on reconnect.
+		if h.store != nil {
 			h.store.SavePendingContactRequest(msg.Payload.ContactID, map[string]interface{}{
 				"id": msg.Payload.ContactID, "fromUserId": msg.Payload.FromUserID,
 				"toUserId": msg.Payload.ToUserID, "displayName": msg.Payload.DisplayName,
 				"publicKey": msg.Payload.PublicKey, "fingerprint": msg.Payload.Fingerprint,
 			})
 		}
+		h.sendToUser(msg.Payload.ToUserID, "contact_request", msg.Payload)
 
 	case "contact_accept":
 		if !h.authorizedRecipient(msg.Payload.FromUserID, msg.Payload.ToUserID, msg.Payload.ConversationID) &&
@@ -286,7 +293,12 @@ func (h *Hub) route(msg WSMessage) {
 			log.Printf("[WS] dropping contact_accept from %s to unauthorized recipient %s", msg.Payload.FromUserID, msg.Payload.ToUserID)
 			return
 		}
-		if !h.sendToUser(msg.Payload.ToUserID, "contact_accept", msg.Payload) && h.store != nil {
+		// Record the mutual contact relationship server-side so that the two
+		// users can exchange DM messages afterwards (authorizedRecipient()
+		// consults these keys). Also clear the now-satisfied pending request.
+		if h.store != nil {
+			h.store.SaveContactPair(msg.Payload.FromUserID, msg.Payload.ToUserID)
+			h.store.RemovePendingRequestsBetween(msg.Payload.ToUserID, msg.Payload.FromUserID)
 			h.store.SavePendingAccept(msg.Payload.ContactID, map[string]interface{}{
 				"id": msg.Payload.ContactID, "fromUserId": msg.Payload.FromUserID,
 				"toUserId": msg.Payload.ToUserID, "displayName": msg.Payload.DisplayName,
@@ -294,6 +306,7 @@ func (h *Hub) route(msg WSMessage) {
 				"conversationId": msg.Payload.ConversationID,
 			})
 		}
+		h.sendToUser(msg.Payload.ToUserID, "contact_accept", msg.Payload)
 
 	case "user_info_request":
 		if !h.authorizedRecipient(msg.Payload.FromUserID, msg.Payload.ToUserID, msg.Payload.ConversationID) {

@@ -79,7 +79,7 @@ export function AddContactModal({ open, onClose }: Props) {
       {open && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm"
           onClick={onClose}
         >
           <motion.div
@@ -90,9 +90,9 @@ export function AddContactModal({ open, onClose }: Props) {
             tabIndex={-1}
             initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md"
+            className="w-full max-w-md rounded-t-3xl sm:rounded-2xl max-h-[92vh] overflow-y-auto"
           >
-            <GlassCard hover={false} className="p-6">
+            <GlassCard hover={false} className="p-5 sm:p-6 rounded-t-3xl sm:rounded-2xl">
               <div className="flex items-center justify-between mb-4">
                 <h2 id={headingId} className="text-lg font-semibold neon-text">Add a contact</h2>
                 <button onClick={onClose} aria-label="Close dialog" className="text-gray-400 hover:text-white"><X size={20} /></button>
@@ -123,6 +123,11 @@ export function AddContactModal({ open, onClose }: Props) {
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     icon={<Link size={16} />}
+                    className="text-base"
+                    inputMode="text"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                   />
                   <GlassButton variant="primary" size="md" className="w-full" onClick={handleParse}>
                     Parse & send
@@ -137,6 +142,10 @@ export function AddContactModal({ open, onClose }: Props) {
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     icon={<User size={16} />}
+                    className="text-base"
+                    autoCapitalize="words"
+                    autoCorrect="off"
+                    spellCheck={false}
                   />
                   <GlassInput
                     placeholder="Fingerprint (32 hex characters)"
@@ -144,6 +153,11 @@ export function AddContactModal({ open, onClose }: Props) {
                     onChange={(e) => setFp(e.target.value.toUpperCase())}
                     icon={<Key size={16} />}
                     maxLength={32}
+                    className="text-base tracking-wider font-mono"
+                    inputMode="text"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
                   />
                   <GlassButton variant="primary" size="md" className="w-full" onClick={handleManual}>
                     Search & send

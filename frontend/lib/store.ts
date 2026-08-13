@@ -15,6 +15,7 @@ interface AppState {
 
   contacts: Contact[]
   contactRequests: ContactRequest[]
+  pendingRequests: string[]
   conversations: Conversation[]
   activeConversationId: string | null
   selectedMessage: { convId: string; msg: Message } | null
@@ -45,6 +46,8 @@ interface AppState {
   setContactRequests: (r: ContactRequest[]) => void
   addContactRequest: (r: ContactRequest) => void
   removeContactRequest: (id: string) => void
+  addPendingRequest: (userId: string) => void
+  removePendingRequest: (userId: string) => void
 
   setConversations: (c: Conversation[]) => void
   addConversation: (c: Conversation) => void
@@ -120,6 +123,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   contacts: [],
   contactRequests: [],
+  pendingRequests: [],
   conversations: [],
   activeConversationId: null,
   selectedMessage: null,
@@ -171,6 +175,13 @@ export const useStore = create<AppState>((set, get) => ({
   removeContactRequest: (id) => {
     const contactRequests = get().contactRequests.filter((c) => c.id !== id)
     set({ contactRequests }); saveToStorage({ contactRequests })
+  },
+  addPendingRequest: (userId) => {
+    if (get().pendingRequests.includes(userId)) return
+    set({ pendingRequests: [...get().pendingRequests, userId] })
+  },
+  removePendingRequest: (userId) => {
+    set({ pendingRequests: get().pendingRequests.filter((u) => u !== userId) })
   },
 
   setConversations: (c) => { set({ conversations: c }); saveToStorage({ conversations: c }) },

@@ -2,6 +2,7 @@ import { useStore } from './store'
 import { decryptMessage, encryptMessage } from './e2e'
 import { api } from './api'
 import { notify, requestNotificationPermission } from './notifications'
+import { showToast } from './toast'
 import type { Message, ContactRequest, Contact } from './types'
 
 function checkServer() {
@@ -161,6 +162,14 @@ export class WSManager {
         store.addContactRequest(cr)
         if (p.fromUserId !== store.user?.id) {
           notify('New contact request', p.displayName || 'Unknown')
+          // Always-visible in-app toast (notify() only fires an OS notification
+          // when the tab is backgrounded + permission granted, so a foreground
+          // manual tester would otherwise see nothing).
+          showToast(
+            'New contact request',
+            `${p.displayName || 'Unknown'} wants to add you`,
+            () => useStore.getState().setActiveTab('contacts')
+          )
         }
         break
       }
@@ -176,6 +185,8 @@ export class WSManager {
           status: 'online', createdAt: Date.now(),
         }
         store.addContact(contact)
+        // We were the requester (original sender); clear the pending state.
+        store.removePendingRequest(p.fromUserId)
         const cid = p.conversationId || convId(myId, p.fromUserId)
         const conv = {
           id: cid, participants: [myId, p.fromUserId],
@@ -290,6 +301,7 @@ export class WSManager {
       fingerprint: user.publicKeyFingerprint,
       contactId: uid(),
     })
+    store.addPendingRequest(toUserId)
   }
 
   acceptContact(request: ContactRequest) {

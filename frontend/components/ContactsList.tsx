@@ -93,7 +93,8 @@ export function ContactsList() {
             key={contact.id}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-all group"
+            onClick={() => handleStartChat(contact)}
+            className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-all group cursor-pointer md:cursor-default"
           >
             <Avatar name={contact.displayName} status={contact.status || 'offline'} />
             <div className="flex-1 min-w-0">
@@ -112,23 +113,26 @@ export function ContactsList() {
               </p>
             </div>
             <button
-              onClick={() => setVerifyContact(contact)}
-              className="p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0 text-amber-400 hover:text-amber-300"
+              onClick={(e) => { e.stopPropagation(); setVerifyContact(contact) }}
+              className="p-2.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0 text-amber-400 hover:text-amber-300 rounded-lg hover:bg-white/10"
               title="Verify safety number"
+              aria-label="Verify safety number"
             >
               <ShieldCheck size={14} />
             </button>
             <button
-              onClick={() => handleStartChat(contact)}
-              className="glass-button p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0"
+              onClick={(e) => { e.stopPropagation(); handleStartChat(contact) }}
+              className="glass-button p-2.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0"
               title="Start a conversation"
+              aria-label="Start a conversation"
             >
               <MessageSquare size={14} />
             </button>
             <button
-              onClick={() => removeContact(contact.userId)}
-              className="p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0 text-gray-500 hover:text-rose-400"
+              onClick={(e) => { e.stopPropagation(); removeContact(contact.userId) }}
+              className="p-2.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0 text-gray-500 hover:text-rose-400 rounded-lg hover:bg-white/10"
               title="Delete contact"
+              aria-label="Delete contact"
             >
               <Trash2 size={14} />
             </button>

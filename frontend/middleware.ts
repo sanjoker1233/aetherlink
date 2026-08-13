@@ -17,12 +17,34 @@ function makeNonce(): string {
 
 export function middleware(req: NextRequest) {
   const nonce = makeNonce()
+  const isProd = process.env.NODE_ENV === 'production'
+
+  // Next.js dev wraps client modules in eval(...) (webpack devtool), so the
+  // app shell cannot hydrate without 'unsafe-eval'. Production builds do NOT
+  // use eval, so we only relax this in dev to keep prod CSP strict.
+  const scriptSrc = [`'self'`, `'nonce-${nonce}'`, `'unsafe-inline'`]
+  if (!isProd) scriptSrc.push(`'unsafe-eval'`)
+
+  // The frontend talks to the Go API, which is served from a different origin
+  // (another host/port). 'self' alone blocks those fetch/XHR calls. Allow the
+  // configured API origin (and its ws: counterpart) so register/login/etc. work.
+  const apiOrigin = (() => {
+    try {
+      const u = new URL(process.env.NEXT_PUBLIC_API_URL || '')
+      return u.origin
+    } catch {
+      return ''
+    }
+  })()
+  const connectSrc = [`'self'`, `ws:`, `wss:`]
+  if (apiOrigin) connectSrc.push(apiOrigin)
+
   const csp = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'unsafe-inline'`,
+    `script-src ${scriptSrc.join(' ')}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
-    "connect-src 'self' ws: wss:",
+    `connect-src ${connectSrc.join(' ')}`,
     "font-src 'self' data:",
     "object-src 'none'",
     "base-uri 'self'",
