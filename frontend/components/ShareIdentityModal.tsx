@@ -29,7 +29,7 @@ export function ShareIdentityModal({ open, onClose }: Props) {
 
   useEffect(() => {
     if (open && canvasRef.current && uri) {
-      void drawQRToCanvas(canvasRef.current, uri, 260)
+      void drawQRToCanvas(canvasRef.current, uri, 240)
     }
   }, [open, uri])
 
@@ -68,10 +68,9 @@ export function ShareIdentityModal({ open, onClose }: Props) {
       {open && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[60] overflow-y-auto bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
           onClick={onClose}
         >
-          <div className="flex min-h-full items-center justify-center p-4 pb-28">
           <motion.div
             ref={dialogRef}
             role="dialog"
@@ -80,7 +79,7 @@ export function ShareIdentityModal({ open, onClose }: Props) {
             tabIndex={-1}
             initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm my-auto"
+            className="w-full max-w-sm my-auto max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain"
           >
             <GlassCard hover={false} className="p-6">
               <div className="flex items-center justify-between mb-4">
@@ -97,9 +96,9 @@ export function ShareIdentityModal({ open, onClose }: Props) {
                   ref={canvasRef}
                   aria-label="QR code containing your identity link"
                   role="img"
-                  className="rounded-xl shadow-neon w-[260px] max-w-full aspect-square h-auto"
-                  width={260}
-                  height={260}
+                  className="rounded-xl shadow-neon w-[240px] max-w-full aspect-square h-auto"
+                  width={240}
+                  height={240}
                 />
               </div>
 
@@ -128,7 +127,6 @@ export function ShareIdentityModal({ open, onClose }: Props) {
               </div>
             </GlassCard>
           </motion.div>
-          </div>
         </motion.div>
       )}
     </AnimatePresence>,
