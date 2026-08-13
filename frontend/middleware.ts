@@ -15,6 +15,22 @@ function makeNonce(): string {
     .join('')
 }
 
+// Derive the API http/ws origins from NEXT_PUBLIC_API_URL. This mirrors
+// next.config.js so dev and prod share one source of truth for connect-src
+// (no more wildcard `ws: wss:` that lets any websocket origin connect).
+function apiOrigins(): { http: string; ws: string } {
+  const fallback = { http: 'http://localhost:9090', ws: 'ws://localhost:9090' }
+  try {
+    const u = new URL(process.env.NEXT_PUBLIC_API_URL || '')
+    return {
+      http: `${u.protocol}//${u.host}`,
+      ws: `${u.protocol === 'https:' ? 'wss:' : 'ws:'}//${u.host}`,
+    }
+  } catch {
+    return fallback
+  }
+}
+
 export function middleware(req: NextRequest) {
   const nonce = makeNonce()
   const isProd = process.env.NODE_ENV === 'production'
@@ -25,19 +41,10 @@ export function middleware(req: NextRequest) {
   const scriptSrc = [`'self'`, `'nonce-${nonce}'`, `'unsafe-inline'`]
   if (!isProd) scriptSrc.push(`'unsafe-eval'`)
 
-  // The frontend talks to the Go API, which is served from a different origin
-  // (another host/port). 'self' alone blocks those fetch/XHR calls. Allow the
-  // configured API origin (and its ws: counterpart) so register/login/etc. work.
-  const apiOrigin = (() => {
-    try {
-      const u = new URL(process.env.NEXT_PUBLIC_API_URL || '')
-      return u.origin
-    } catch {
-      return ''
-    }
-  })()
-  const connectSrc = [`'self'`, `ws:`, `wss:`]
-  if (apiOrigin) connectSrc.push(apiOrigin)
+  // Tighten connect-src to the concrete API origin instead of the wildcard
+  // `ws: wss:` — a random `ws://` origin must NOT be able to open a socket.
+  const { http: apiHttp, ws: apiWs } = apiOrigins()
+  const connectSrc = [`'self'`, apiHttp, apiWs]
 
   const csp = [
     "default-src 'self'",
@@ -46,9 +53,15 @@ export function middleware(req: NextRequest) {
     "img-src 'self' data: blob:",
     `connect-src ${connectSrc.join(' ')}`,
     "font-src 'self' data:",
+    "worker-src 'self'",
+    "manifest-src 'self'",
     "object-src 'none'",
-    "base-uri 'self'",
+    "base-uri 'none'",
+    "form-action 'self'",
     "frame-ancestors 'none'",
+    // upgrade-insecure-requests is a no-op on http:// pages but pins HTTPS
+    // once the app is served over TLS.
+    'upgrade-insecure-requests',
   ].join('; ')
 
   const res = NextResponse.next()
@@ -56,7 +69,22 @@ export function middleware(req: NextRequest) {
   res.headers.set('X-Content-Type-Options', 'nosniff')
   res.headers.set('Referrer-Policy', 'no-referrer')
   res.headers.set('X-Frame-Options', 'DENY')
-  res.headers.set('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
+  // X-XSS-Protection is obsolete and can *introduce* XSS on old browsers.
+  // Explicitly set to 0 to override any upstream default.
+  res.headers.set('X-XSS-Protection', '0')
+  res.headers.set(
+    'Permissions-Policy',
+    'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()',
+  )
+  // HSTS: browsers ignore it over plain HTTP, so it's safe to always send.
+  // Once served over HTTPS this pins the origin to HTTPS for two years.
+  res.headers.set(
+    'Strict-Transport-Security',
+    'max-age=63072000; includeSubDomains; preload',
+  )
+  // COOP/CORP harden against cross-origin leaks (Spectre, tab-nabbing).
+  res.headers.set('Cross-Origin-Opener-Policy', 'same-origin')
+  res.headers.set('Cross-Origin-Resource-Policy', 'same-origin')
   return res
 }
 
