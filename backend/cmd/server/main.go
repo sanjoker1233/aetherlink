@@ -33,10 +33,51 @@ import (
 //   - search/messages: authed but still cheap to abuse. 10 rps with a burst of
 //     20 lets a real UI feel snappy while blocking enumeration/floods.
 // See audit finding H9.
+//
+// Each policy is overridable via env (format "key=value,key=value"):
+//   REGISTER_RATE_LIMIT="every=20s,burst=5"   (or "rps=0.05,burst=5")
+//   SEARCH_RATE_LIMIT="rps=10,burst=20"
+//   MESSAGES_RATE_LIMIT="rps=10,burst=20"
+// Parsing is lenient: unrecognized/empty parts keep the safe default.
+func parseRateLimit(envKey string, def ratelimit.Config) ratelimit.Config {
+	raw := os.Getenv(envKey)
+	if raw == "" {
+		return def
+	}
+	cfg := def
+	for _, part := range strings.Split(raw, ",") {
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		k := strings.TrimSpace(kv[0])
+		v := strings.TrimSpace(kv[1])
+		switch k {
+		case "rps":
+			if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+				cfg.Rate = rate.Limit(f)
+			}
+		case "every":
+			if d, err := time.ParseDuration(v); err == nil && d > 0 {
+				cfg.Rate = rate.Every(d)
+			}
+		case "burst":
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				cfg.Burst = n
+			}
+		}
+	}
+	return cfg
+}
+
 var (
-	registerLimiter = ratelimit.New(ratelimit.Config{Rate: rate.Every(20 * time.Second), Burst: 5})
-	searchLimiter   = ratelimit.New(ratelimit.Config{Rate: 10, Burst: 20})
-	messagesLimiter = ratelimit.New(ratelimit.Config{Rate: 10, Burst: 20})
+	// Built-in default: 10 rapid registrations allowed, then ~6/min. This
+	// still blocks registration floods while permitting legitimate bursts
+	// (e.g. the E2E suite registering a few identities, or several users
+	// behind one NAT/IP). Override via REGISTER_RATE_LIMIT env.
+	registerLimiter = ratelimit.New(parseRateLimit("REGISTER_RATE_LIMIT", ratelimit.Config{Rate: rate.Every(10 * time.Second), Burst: 10}))
+	searchLimiter   = ratelimit.New(parseRateLimit("SEARCH_RATE_LIMIT", ratelimit.Config{Rate: 10, Burst: 20}))
+	messagesLimiter = ratelimit.New(parseRateLimit("MESSAGES_RATE_LIMIT", ratelimit.Config{Rate: 10, Burst: 20}))
 )
 
 // maxRequestBody caps every JSON POST body. Tokens/pubkeys/messages are all
@@ -151,6 +192,8 @@ func main() {
 	// Falls back to a safe localhost dev default. NEVER wildcard on an authed API.
 	allowedOrigins := parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS"))
 	log.Printf("CORS allowed origins: %v", allowedOrigins)
+	log.Printf("Rate-limit overrides: REGISTER_RATE_LIMIT=%q SEARCH_RATE_LIMIT=%q MESSAGES_RATE_LIMIT=%q (empty = safe built-in default)",
+		os.Getenv("REGISTER_RATE_LIMIT"), os.Getenv("SEARCH_RATE_LIMIT"), os.Getenv("MESSAGES_RATE_LIMIT"))
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)

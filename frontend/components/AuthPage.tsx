@@ -43,6 +43,7 @@ export function AuthPage() {
       let userId = CryptCrypto.generateId()
       let registered = false
       let registerErr = ''
+      let registerStatus = 0
 
       try {
         // Two-step register with proof-of-possession:
@@ -60,6 +61,16 @@ export function AuthPage() {
         // Keep the real server rejection (e.g. "display name already taken")
         // so we can surface it instead of a generic "unreachable" message.
         registerErr = e?.message || ''
+        registerStatus = e?.status || 0
+      }
+
+      // On a rate-limit (429) we must NOT drop the user into a half-authenticated
+      // state: there is no server token, so later authenticated calls (contact
+      // lookup, message history) would fail with 401. Ask them to retry instead.
+      if (!registered && registerStatus === 429) {
+        setError('Registration is rate-limited. Please wait a few seconds and try again.')
+        setIsLoading(false)
+        return
       }
 
       const user: UserType = {

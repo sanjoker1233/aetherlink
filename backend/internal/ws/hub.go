@@ -395,6 +395,34 @@ func (h *Hub) route(msg WSMessage) {
 		}
 		h.sendToUser(msg.Payload.ToUserID, "contact_accept", msg.Payload)
 
+	case "contact_decline":
+		// A recipient declines a contact request they received. Like accept,
+		// identity is server-enforced; the decliner must be the actual
+		// recipient of the stored pending request (otherwise anyone could
+		// purge someone else's pending requests).
+		from, to := msg.Payload.FromUserID, msg.Payload.ToUserID
+		if from == "" || to == "" {
+			return
+		}
+		if h.store != nil {
+			authorized := false
+			for _, r := range h.store.GetPendingContactRequests(from) {
+				if ru, _ := r["fromUserId"].(string); ru == to {
+					authorized = true
+					break
+				}
+			}
+			if authorized {
+				// Drop the pending request so it is NOT redelivered to the
+				// recipient on their next connect, and tell the original
+				// sender their request was declined (instead of lingering in
+				// a perpetual "pending" state).
+				h.store.RemovePendingContactRequest(msg.Payload.ContactID)
+				h.store.RemovePendingRequestsBetween(from, to)
+				h.sendToUser(to, "contact_decline", msg.Payload)
+			}
+		}
+
 	case "user_info_request":
 		if !h.authorizedRecipient(msg.Payload.FromUserID, msg.Payload.ToUserID, msg.Payload.ConversationID) {
 			log.Printf("[WS] dropping user_info_request from %s to unauthorized recipient %s", msg.Payload.FromUserID, msg.Payload.ToUserID)

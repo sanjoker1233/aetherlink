@@ -163,17 +163,27 @@ export class WSManager {
       case 'message': {
         const p = msg.payload
         const myId = store.user?.id
+        const isOwn = p.senderId === myId
         let plainContent = ''
         // Group: each member has its own ciphertext under p.recipients[myId].
         const mine = p.recipients && myId ? p.recipients[myId] : undefined
         const encContent = mine?.content ?? p.content
         const encKey = mine?.encryptedKey ?? p.encryptedKey
         const encIV = mine?.iv ?? p.iv
-        if (p.encrypted && store.keyPair?.privateKey && encContent && encKey && encIV) {
+        // Only decrypt messages actually addressed to us. Our own outgoing message
+        // is echoed back encrypted to the *recipient*, which we cannot decrypt —
+        // and the local optimistic copy (added on send) already holds the
+        // plaintext. Re-adding that echo would clobber our plaintext with
+        // ciphertext and render "[ENCRYPTED] <blob>" for our own sent messages.
+        if (!isOwn && p.encrypted && store.keyPair?.privateKey && encContent && encKey && encIV) {
           try {
             plainContent = await decryptMessage(encIV, encKey, encContent, store.keyPair.privateKey)
           } catch {}
         }
+        // Own message: keep the local plaintext copy we added on send; do not let
+        // the recipient-encrypted echo overwrite it. Delivery status arrives via
+        // message_ack.
+        if (isOwn) break
         store.addMessage(p.conversationId, {
           id: p.id, conversationId: p.conversationId,
           senderId: p.senderId, content: p.content,
@@ -184,14 +194,12 @@ export class WSManager {
           ephemeral: p.ephemeral || undefined,
           ttl: p.ttl || undefined,
         })
-        if (p.senderId !== store.user?.id) {
-          const sender = store.contacts.find(c => c.userId === p.senderId)
-          notify(
-            sender?.displayName || 'CRYPTMessenger',
-            'Encrypted message 🔒',
-            () => store.setActiveConversation(p.conversationId)
-          )
-        }
+        const sender = store.contacts.find(c => c.userId === p.senderId)
+        notify(
+          sender?.displayName || 'CRYPTMessenger',
+          'Encrypted message 🔒',
+          () => store.setActiveConversation(p.conversationId)
+        )
         break
       }
 
@@ -283,6 +291,17 @@ export class WSManager {
         store.addConversation(conv)
         if (p.fromUserId !== store.user?.id) {
           notify('Request accepted', `${p.displayName || 'A contact'} accepted your request`)
+        }
+        break
+      }
+
+      case 'contact_decline': {
+        const p = msg.payload
+        // We were the original sender: our outgoing request was declined, so
+        // clear the pending state (it would otherwise stay "pending" forever).
+        store.removePendingRequest(p.fromUserId)
+        if (p.fromUserId !== store.user?.id) {
+          notify('Request declined', `${p.displayName || 'A contact'} declined your request`)
         }
         break
       }
@@ -450,6 +469,20 @@ export class WSManager {
       updatedAt: Date.now(),
     }
     store.addConversation(conv)
+    store.removeContactRequest(request.id)
+  }
+
+  declineContact(request: ContactRequest) {
+    const store = useStore.getState()
+    const myId = store.user?.id || ''
+    this.send('contact_decline', {
+      fromUserId: myId,
+      toUserId: request.fromUserId,
+      contactId: request.id,
+      displayName: store.user?.displayName || '',
+    })
+    // Optimistically clear the local incoming request; the server also drops
+    // it so it will not be redelivered on the next connect.
     store.removeContactRequest(request.id)
   }
 

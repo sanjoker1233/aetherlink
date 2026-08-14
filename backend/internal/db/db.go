@@ -1,8 +1,10 @@
 package db
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -16,12 +18,35 @@ import (
 // once and remove the legacy file. See audit finding H6.
 const legacyPath = "/tmp/cryptmessenger-db.json"
 
+// checkpointInterval controls how many WAL operations accumulate before we
+// rewrite the compact snapshot and truncate the WAL. Lower = smaller WAL /
+// more frequent full rewrites; higher = larger WAL / fewer rewrites. 200 is a
+// comfortable default for a personal messenger.
+const checkpointInterval = 200
+
+// walOp is a single append-only mutation recorded in the write-ahead log.
+// Replaying the WAL in order reproduces the exact in-memory state, so a crash
+// can never lose a committed write and can never observe a torn record (the
+// final, possibly partial line is skipped on load).
+type walOp struct {
+	T    string      `json:"t"`           // put | del | delmsg | delpb
+	Coll string      `json:"c,omitempty"` // users | conversations (for put/del)
+	Key  string      `json:"k,omitempty"` // key within the collection
+	Val  interface{} `json:"v,omitempty"` // value for put
+	ID   string      `json:"id,omitempty"` // message id for delmsg
+	A    string      `json:"a,omitempty"` // for delpb (RemovePendingRequestsBetween)
+	B    string      `json:"b,omitempty"` // for delpb
+}
+
 type Store struct {
 	mu            sync.RWMutex
 	users         map[string]map[string]interface{}
 	messages      map[string][]map[string]interface{}
 	conversations map[string]map[string]interface{}
 	path          string
+	walPath       string
+	wal           *os.File // append handle; nil if WAL failed to open (degraded)
+	opCount       int
 }
 
 func NewStore(path string) *Store {
@@ -30,6 +55,7 @@ func NewStore(path string) *Store {
 		messages:      make(map[string][]map[string]interface{}),
 		conversations: make(map[string]map[string]interface{}),
 		path:          path,
+		walPath:       path + ".wal",
 	}
 	// Ensure the parent directory exists with restrictive perms BEFORE any
 	// write. 0700 means only the running user can list/traverse it — critical
@@ -43,15 +69,170 @@ func NewStore(path string) *Store {
 		}
 	}
 	s.migrateLegacyIfPresent()
-	s.load()
+	s.loadSnapshot()
+	if err := s.openWAL(); err != nil {
+		log.Printf("db: WAL unavailable, falling back to snapshot-only persistence: %v", err)
+	}
 	return s
+}
+
+// openWAL opens the write-ahead log, replays any existing records into the
+// in-memory maps (on top of the snapshot already loaded), and keeps the file
+// handle positioned at EOF for subsequent appends. Must be called once during
+// construction, before any concurrent access.
+func (s *Store) openWAL() error {
+	f, err := os.OpenFile(s.walPath, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		_ = f.Close()
+		return err
+	}
+	r := bufio.NewReader(f)
+	for {
+		line, rerr := r.ReadString('\n')
+		if len(line) > 0 {
+			trimmed := strings.TrimRight(line, "\n")
+			if trimmed != "" {
+				var op walOp
+				if jerr := json.Unmarshal([]byte(trimmed), &op); jerr == nil {
+					s.applyOp(op)
+				} else {
+					// A torn final line from a crash mid-write — skip it.
+					// Any other corruption is likewise ignored so a single
+					// bad record can't block startup.
+					log.Printf("db: skipping unparseable WAL line: %v", jerr)
+				}
+			}
+		}
+		if rerr != nil {
+			break // EOF or read error
+		}
+	}
+	if _, err := f.Seek(0, io.SeekEnd); err != nil {
+		_ = f.Close()
+		return err
+	}
+	s.wal = f
+	s.opCount = 0
+	return nil
+}
+
+// applyOp mutates the in-memory maps only. Used both during WAL replay and
+// (indirectly) mirrored by the public methods via appendOp. Callers that call
+// it directly (WAL replay at startup) must NOT hold s.mu.
+func (s *Store) applyOp(op walOp) {
+	switch op.T {
+	case "put":
+		switch op.Coll {
+		case "users":
+			if m := toMap(op.Val); m != nil {
+				s.users[op.Key] = m
+			}
+		case "conversations":
+			if m := toMap(op.Val); m != nil {
+				s.conversations[op.Key] = m
+			}
+		case "messages":
+			if m := toMap(op.Val); m != nil {
+				s.messages[op.Key] = append(s.messages[op.Key], m)
+			}
+		}
+	case "del":
+		switch op.Coll {
+		case "users":
+			delete(s.users, op.Key)
+		case "conversations":
+			delete(s.conversations, op.Key)
+		}
+	case "delmsg":
+		msgs, ok := s.messages[op.Key]
+		if !ok {
+			return
+		}
+		out := msgs[:0]
+		removed := false
+		for _, m := range msgs {
+			if idStr, _ := m["id"].(string); idStr == op.ID {
+				removed = true
+				continue
+			}
+			out = append(out, m)
+		}
+		if removed {
+			s.messages[op.Key] = out
+		}
+	case "delpb":
+		// RemovePendingRequestsBetween(a, b)
+		for k, v := range s.users {
+			if len(k) > 12 && k[:12] == "pending_req:" {
+				from, _ := v["fromUserId"].(string)
+				to, _ := v["toUserId"].(string)
+				if (from == op.A && to == op.B) || (from == op.B && to == op.A) {
+					delete(s.users, k)
+				}
+			}
+		}
+	}
+}
+
+// appendOp records a mutation in the WAL (durable, append-only) and advances
+// the checkpoint counter. MUST be called while holding s.mu — the public
+// methods already do.
+func (s *Store) appendOp(op walOp) {
+	if s.wal == nil {
+		return // degraded mode: in-memory state still correct
+	}
+	b, err := json.Marshal(op)
+	if err != nil {
+		log.Printf("db: could not marshal WAL op: %v", err)
+		return
+	}
+	b = append(b, '\n')
+	if _, err := s.wal.Write(b); err != nil {
+		log.Printf("db: could not write WAL op: %v", err)
+		return
+	}
+	if err := s.wal.Sync(); err != nil {
+		log.Printf("db: WAL fsync failed: %v", err)
+	}
+	s.opCount++
+	if s.opCount >= checkpointInterval {
+		s.snapshot()
+		if err := os.Truncate(s.walPath, 0); err == nil {
+			_, _ = s.wal.Seek(0, io.SeekEnd)
+		}
+		s.opCount = 0
+	}
+}
+
+// Checkpoint forces a compact snapshot + WAL truncation. Exposed for tests and
+// for orderly shutdown (call under no lock — it takes the lock itself).
+func (s *Store) Checkpoint() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.snapshot()
+	if s.wal != nil {
+		if err := os.Truncate(s.walPath, 0); err == nil {
+			_, _ = s.wal.Seek(0, io.SeekEnd)
+		}
+		s.opCount = 0
+	}
+}
+
+func toMap(v interface{}) map[string]interface{} {
+	if m, ok := v.(map[string]interface{}); ok {
+		return m
+	}
+	return nil
 }
 
 func (s *Store) SaveUser(userID string, data map[string]interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.users[userID] = data
-	s.persist()
+	s.appendOp(walOp{T: "put", Coll: "users", Key: userID, Val: data})
 }
 
 func (s *Store) GetUser(userID string) map[string]interface{} {
@@ -64,8 +245,9 @@ func (s *Store) GetUser(userID string) map[string]interface{} {
 func (s *Store) SavePushSubscription(userID string, sub map[string]interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.users["push:"+userID] = sub
-	s.persist()
+	key := "push:" + userID
+	s.users[key] = sub
+	s.appendOp(walOp{T: "put", Coll: "users", Key: key, Val: sub})
 }
 
 func (s *Store) GetPushSubscription(userID string) map[string]interface{} {
@@ -109,7 +291,7 @@ func (s *Store) SaveMessage(convID string, msg map[string]interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.messages[convID] = append(s.messages[convID], msg)
-	s.persist()
+	s.appendOp(walOp{T: "put", Coll: "messages", Key: convID, Val: msg})
 }
 
 func (s *Store) GetMessages(convID string) []map[string]interface{} {
@@ -139,15 +321,16 @@ func (s *Store) DeleteMessage(convID, id string) {
 	}
 	if removed {
 		s.messages[convID] = out
-		s.persist()
+		s.appendOp(walOp{T: "delmsg", Key: convID, ID: id})
 	}
 }
 
 func (s *Store) SavePendingContactRequest(requestID string, data map[string]interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.users["pending_req:"+requestID] = data
-	s.persist()
+	key := "pending_req:" + requestID
+	s.users[key] = data
+	s.appendOp(walOp{T: "put", Coll: "users", Key: key, Val: data})
 }
 
 func (s *Store) GetPendingContactRequests(userID string) []map[string]interface{} {
@@ -168,8 +351,9 @@ func (s *Store) GetPendingContactRequests(userID string) []map[string]interface{
 func (s *Store) RemovePendingContactRequest(requestID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.users, "pending_req:"+requestID)
-	s.persist()
+	key := "pending_req:" + requestID
+	delete(s.users, key)
+	s.appendOp(walOp{T: "del", Coll: "users", Key: key})
 }
 
 // SaveContactPair records a mutual contact relationship between two users so
@@ -183,9 +367,11 @@ func (s *Store) SaveContactPair(a, b string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	data := map[string]interface{}{"a": a, "b": b, "since": time.Now().Unix()}
-	s.users["contact:"+a+":"+b] = data
-	s.users["contact:"+b+":"+a] = data
-	s.persist()
+	ka, kb := "contact:"+a+":"+b, "contact:"+b+":"+a
+	s.users[ka] = data
+	s.users[kb] = data
+	s.appendOp(walOp{T: "put", Coll: "users", Key: ka, Val: data})
+	s.appendOp(walOp{T: "put", Coll: "users", Key: kb, Val: data})
 }
 
 // RemovePendingRequestsBetween deletes any stored pending contact requests
@@ -203,14 +389,15 @@ func (s *Store) RemovePendingRequestsBetween(a, b string) {
 			}
 		}
 	}
-	s.persist()
+	s.appendOp(walOp{T: "delpb", A: a, B: b})
 }
 
 func (s *Store) SavePendingAccept(requestID string, data map[string]interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.users["pending_accept:"+requestID] = data
-	s.persist()
+	key := "pending_accept:" + requestID
+	s.users[key] = data
+	s.appendOp(walOp{T: "put", Coll: "users", Key: key, Val: data})
 }
 
 func (s *Store) GetPendingAccepts(userID string) []map[string]interface{} {
@@ -231,8 +418,9 @@ func (s *Store) GetPendingAccepts(userID string) []map[string]interface{} {
 func (s *Store) RemovePendingAccept(requestID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.users, "pending_accept:"+requestID)
-	s.persist()
+	key := "pending_accept:" + requestID
+	delete(s.users, key)
+	s.appendOp(walOp{T: "del", Coll: "users", Key: key})
 }
 
 // --- Conversations (group + DM membership) ---
@@ -265,7 +453,7 @@ func (s *Store) SaveConversation(conv map[string]interface{}) {
 		conv["members"] = norm
 	}
 	s.conversations[id] = conv
-	s.persist()
+	s.appendOp(walOp{T: "put", Coll: "conversations", Key: id, Val: conv})
 }
 
 func (s *Store) GetConversation(convID string) map[string]interface{} {
@@ -324,14 +512,17 @@ func isMember(conv map[string]interface{}, userID string) bool {
 	return false
 }
 
-func (s *Store) load() {
+// loadSnapshot reads the compact JSON snapshot (users + messages +
+// conversations) into memory. It is the base state onto which the WAL is
+// replayed. A missing snapshot simply means a fresh store.
+func (s *Store) loadSnapshot() {
 	data, err := os.ReadFile(s.path)
 	if err != nil {
 		log.Printf("No existing database at %s, starting fresh", s.path)
 		return
 	}
 	// If the DB file pre-existed with lax perms (e.g. from an older build),
-	// tighten them silently on read. Defense-in-depth — persist() writes 0600
+	// tighten them silently on read. Defense-in-depth — snapshot() writes 0600
 	// but the file we just read might have been left over from before.
 	_ = os.Chmod(s.path, 0o600)
 	var store struct {
@@ -365,12 +556,13 @@ func (s *Store) load() {
 	log.Printf("Loaded %d users, %d conversations and %d message threads", len(s.users), len(s.conversations), len(s.messages))
 }
 
-// persist writes the DB atomically: dump JSON to a sibling tmp file with 0600,
-// fsync, then rename. Rename on the same filesystem is atomic on POSIX, so
-// readers never see a torn write and a crash mid-write can't corrupt the
-// canonical file. Perms are 0600 so only the running user can read secrets +
-// message ciphertext at rest (previously 0644 world-readable — audit H6).
-func (s *Store) persist() {
+// snapshot writes the full compact JSON file atomically: dump JSON to a sibling
+// tmp file with 0600, fsync, then rename. Rename on the same filesystem is
+// atomic on POSIX, so readers never see a torn write and a crash mid-write
+// can't corrupt the canonical file. Perms are 0600 so only the running user
+// can read secrets + message ciphertext at rest (previously 0644
+// world-readable — audit H6).
+func (s *Store) snapshot() {
 	data, err := json.MarshalIndent(map[string]interface{}{
 		"users":         s.users,
 		"messages":      s.messages,
@@ -406,9 +598,9 @@ func (s *Store) persist() {
 	}
 }
 
-// migrateLegacyIfPresent copies /tmp/cryptmessenger-db.json to the configured
-// path (once) and removes the legacy file. Only runs when the new path doesn't
-// already have a DB — never overwrites live data. See audit finding H6.
+// migrateLegacyIfPresent check: copy /tmp/cryptmessenger-db.json to the
+// configured path (once) and remove the legacy file. Only runs when the new
+// path doesn't already have a DB — never overwrites live data. See audit H6.
 func (s *Store) migrateLegacyIfPresent() {
 	if s.path == legacyPath {
 		return // caller explicitly asked for the legacy path — nothing to do

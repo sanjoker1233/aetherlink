@@ -7,7 +7,6 @@ import { GlassButton } from '@/components/ui/GlassButton'
 import { useStore } from '@/lib/store'
 import { api } from '@/lib/api'
 import { wsManager } from '@/lib/ws-client'
-import type { ContactRequest } from '@/lib/types'
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 
 export function ChatList() {
@@ -73,10 +72,6 @@ export function ChatList() {
     const conv = conversations.find((c) => c.participants?.includes(userId))
     if (conv) { setActiveConversation(conv.id); closeSidebar() }
   }, [conversations, setActiveConversation])
-
-  const handleAccept = useCallback((req: ContactRequest) => {
-    wsManager.acceptContact(req)
-  }, [])
 
   const isContact = useCallback((userId: string) => {
     return contacts.some((c) => c.userId === userId)
@@ -208,7 +203,10 @@ export function ChatList() {
         </AnimatePresence>
       </div>
 
-      {/* Incoming contact requests */}
+      {/* Incoming contact requests — the actions live in the floating
+          ContactRequestBadge (always visible, incl. on mobile), so we only
+          show an informational "pending" row here to avoid a duplicate
+          Accept/Refuse control. */}
       {contactRequests.length > 0 && (
         <div className="px-3 py-2 border-b border-amber-400/10 bg-amber-400/5">
           <p className="text-[10px] text-amber-400 font-medium uppercase tracking-wider mb-1.5">
@@ -222,9 +220,9 @@ export function ChatList() {
                   <p className="text-xs font-medium truncate">{req.fromName}</p>
                   <p className="text-[9px] text-gray-500 font-mono truncate">{req.fromFingerprint}</p>
                 </div>
-                <GlassButton size="sm" onClick={() => handleAccept(req)} icon={<UserCheck size={11} />}>
-                  Accept
-                </GlassButton>
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-400/15 text-amber-400 shrink-0">
+                  Pending
+                </span>
               </div>
             ))}
           </div>

@@ -14,7 +14,9 @@ export function ChatArea() {
   const [input, setInput] = useState('')
   const [attachments, setAttachments] = useState<{ name: string; type: string; data: string }[]>([])
   const [showAttach, setShowAttach] = useState(false)
-  const [unlockedIds, setUnlockedIds] = useState<Record<string, boolean>>({})
+  // Messages are readable (decrypted) by default. `lockedIds` tracks messages
+  // the user explicitly hid, or that auto-re-locked after decryptDuration.
+  const [lockedIds, setLockedIds] = useState<Record<string, boolean>>({})
   const unlockTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const processedIds = useRef<Set<string>>(new Set())
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -52,10 +54,10 @@ export function ChatArea() {
     currentMessages.forEach((msg) => {
       if (processedIds.current.has(msg.id)) return
       if (!msg.encrypted || !msg.plainContent) return
+      // Visible by default; auto re-lock (hide) after the chosen duration.
       processedIds.current.add(msg.id)
-      setUnlockedIds((prev) => ({ ...prev, [msg.id]: true }))
       unlockTimers.current[msg.id] = setTimeout(() => {
-        setUnlockedIds((prev) => ({ ...prev, [msg.id]: false }))
+        setLockedIds((prev) => ({ ...prev, [msg.id]: true }))
         delete unlockTimers.current[msg.id]
       }, duration)
     })
@@ -174,23 +176,24 @@ export function ChatArea() {
 
   const toggleDecrypt = (msgId: string) => {
     clearTimer(msgId)
-    const becomingUnlocked = !unlockedIds[msgId]
-    setUnlockedIds(prev => ({ ...prev, [msgId]: becomingUnlocked }))
-    if (becomingUnlocked && settings.decryptDuration > 0) {
+    const becomingLocked = !lockedIds[msgId]
+    setLockedIds(prev => ({ ...prev, [msgId]: becomingLocked }))
+    // If we just revealed it and a duration is set, auto re-lock after it.
+    if (!becomingLocked && settings.decryptDuration > 0) {
       unlockTimers.current[msgId] = setTimeout(() => {
-        setUnlockedIds(prev => ({ ...prev, [msgId]: false }))
+        setLockedIds(prev => ({ ...prev, [msgId]: true }))
         delete unlockTimers.current[msgId]
       }, settings.decryptDuration)
     }
   }
 
   const displayContent = (msg: Message) => {
-    const isUnlocked = unlockedIds[msg.id]
-    if (msg.encrypted && !isUnlocked) {
+    const isLocked = !!lockedIds[msg.id]
+    if (msg.encrypted && isLocked) {
       const truncated = msg.content.slice(0, 80) + (msg.content.length > 80 ? '...' : '')
       return `[ENCRYPTED] ${truncated}`
     }
-    if (msg.encrypted && isUnlocked && msg.plainContent) {
+    if (msg.encrypted && !isLocked && msg.plainContent) {
       return msg.plainContent
     }
     return msg.content
@@ -246,7 +249,7 @@ export function ChatArea() {
         <AnimatePresence>
           {visibleMessages.map((msg) => {
             const isEncrypted = msg.encrypted
-            const isUnlocked = unlockedIds[msg.id]
+            const isLocked = !!lockedIds[msg.id]
             const showDecryptToggle = isEncrypted && !!msg.plainContent
             const content = displayContent(msg)
 
@@ -258,13 +261,13 @@ export function ChatArea() {
                 exit={{ opacity: 0, scale: 0.95 }}
                 className={`message-bubble cursor-pointer transition-shadow hover:shadow-lg ${
                   msg.senderId === user?.id ? 'sent' : 'received'
-                } ${isEncrypted && !isUnlocked ? 'opacity-80' : ''}`}
+                } ${isEncrypted && isLocked ? 'opacity-80' : ''}`}
                 onClick={() => setSelectedMessage({ convId: activeConversationId!, msg })}
               >
                 <div className="flex items-start gap-2">
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm leading-relaxed whitespace-pre-wrap break-words ${
-                      isEncrypted && !isUnlocked ? 'font-mono text-xs text-amber-400/70' : 'text-[#f5e6d3]'
+                      isEncrypted && isLocked ? 'font-mono text-xs text-amber-400/70' : 'text-[#f5e6d3]'
                     }`}>
                       {content}
                     </p>
@@ -276,14 +279,14 @@ export function ChatArea() {
                     <motion.button
                       onClick={(e) => { e.stopPropagation(); toggleDecrypt(msg.id) }}
                       className={`p-1.5 rounded-md transition-all min-w-[32px] min-h-[32px] flex items-center justify-center ${
-                        isUnlocked
-                          ? 'bg-amber-400/20 text-amber-400'
-                          : 'text-gray-500 hover:text-amber-400'
+                        isLocked
+                          ? 'text-gray-500 hover:text-amber-400'
+                          : 'bg-amber-400/20 text-amber-400'
                       }`}
                       whileTap={{ scale: 0.9 }}
-                      title={isUnlocked ? 'Hide (encrypt)' : 'Decrypt'}
+                      title={isLocked ? 'Decrypt' : 'Hide (encrypt)'}
                     >
-                      {isUnlocked ? <Unlock size={12} /> : <Lock size={12} />}
+                      {isLocked ? <Lock size={12} /> : <Unlock size={12} />}
                     </motion.button>
                   )}
                   {!showDecryptToggle && isEncrypted && (
@@ -302,11 +305,11 @@ export function ChatArea() {
                 {isEncrypted && (
                   <div className="flex items-center gap-1 mt-1">
                     <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
-                      isUnlocked
-                        ? 'bg-emerald-500/10 text-emerald-500'
-                        : 'bg-amber-400/10 text-amber-400'
+                      isLocked
+                        ? 'bg-amber-400/10 text-amber-400'
+                        : 'bg-emerald-500/10 text-emerald-500'
                     }`}>
-                      {isUnlocked ? 'Decrypted' : 'Encrypted'}
+                      {isLocked ? 'Encrypted' : 'Decrypted'}
                     </span>
                   </div>
                 )}

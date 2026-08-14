@@ -13,6 +13,9 @@ COPY . .
 RUN npm run build
 
 # ---- runtime stage ----
+# Use the `output: 'standalone'` server (already enabled in next.config.js):
+# it bundles only the traced server deps, so we don't ship the full
+# node_modules. Much smaller + smaller attack surface than `next start`.
 FROM node:18-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
@@ -22,13 +25,12 @@ ENV NODE_ENV=production \
 
 RUN addgroup -g 10001 -S nodejs && adduser -S -u 10001 -G nodejs nextjs
 
-# On sert via `next start` : on a donc besoin des deps de prod + du build.
-COPY --from=build /app/package.json /app/package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
-COPY --from=build /app/.next ./.next
+# Standalone server + its traced deps, plus the static assets it serves.
+COPY --from=build /app/.next/standalone ./
+COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
-COPY --from=build /app/next.config.js ./next.config.js
 
 USER nextjs
 EXPOSE 3000
-CMD ["npm", "start"]
+ENV NODE_ENV=production
+CMD ["node", "server.js"]

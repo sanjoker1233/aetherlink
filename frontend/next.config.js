@@ -15,15 +15,19 @@ try {
   // keep defaults
 }
 
-// NOTE on 'unsafe-inline' in style-src: Next.js's App Router injects inline
-// <style> blocks for CSS-in-JS and per-route styles. Removing 'unsafe-inline'
-// breaks the app until we add a nonce-based style setup. This is a known Next
-// footgun. See https://nextjs.org/docs/app/building-your-application/configuring/content-security-policy
-// TODO: switch to a nonce-per-request CSP once we add middleware; for now the
-// script-src stays strict ('self'), which is what actually gates XSS impact.
+// Next.js App Router injects inline bootstrap scripts that we cannot nonce-tag
+// without a custom Document, so script-src must allow 'unsafe-inline' for the
+// app to hydrate. User content is rendered as escaped text via React, so the
+// inline-script XSS surface is negligible. (style-src keeps 'unsafe-inline'
+// because Next injects inline <style> blocks.)
+//
+// NOTE: dropping 'unsafe-inline' for a real nonce-based CSP requires either
+// Next's experimental.cspNonce (absent in 14.2.35 — middleware body rewrites
+// are ignored for prerendered/static routes) or forcing pages dynamic. Tracked
+// as a future hardening once Next is upgraded.
 const csp = [
   "default-src 'self'",
-  "script-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",

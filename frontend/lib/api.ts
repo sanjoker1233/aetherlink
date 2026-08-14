@@ -26,7 +26,9 @@ export class CryptAPI {
     const res = await fetch(`${API_BASE}${path}`, { ...options, headers })
     if (!res.ok) {
       const err = await res.text()
-      throw new Error(err || `HTTP ${res.status}`)
+      const e = new Error(err || `HTTP ${res.status}`)
+      ;(e as any).status = res.status
+      throw e
     }
     return res.json()
   }

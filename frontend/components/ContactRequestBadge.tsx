@@ -55,7 +55,7 @@ export function ContactRequestBadge() {
                     <GlassButton
                       variant="ghost"
                       size="sm"
-                      onClick={() => removeContactRequest(req.id)}
+                      onClick={() => wsManager.declineContact(req)}
                       icon={<X size={12} />}
                     >
                       Refuse

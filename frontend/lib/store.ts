@@ -184,7 +184,12 @@ export const useStore = create<AppState>((set, get) => ({
 
   setContactRequests: (r) => set({ contactRequests: r }),
   addContactRequest: (r) => {
-    const contactRequests = [...get().contactRequests, r]
+    // Dedup by sender: the server replays pending requests on every WS
+    // reconnect, so without this the recipient would see duplicate "Accept"
+    // buttons for the same request.
+    const existing = get().contactRequests
+    if (existing.some((c) => c.fromUserId === r.fromUserId)) return
+    const contactRequests = [...existing, r]
     set({ contactRequests }); saveToStorage({ contactRequests })
   },
   removeContactRequest: (id) => {

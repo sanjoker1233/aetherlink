@@ -141,3 +141,55 @@ func TestTypingRelayPreservesFlag(t *testing.T) {
 		t.Fatalf("stop-typing flag not relayed correctly")
 	}
 }
+
+// TestContactDecline verifies the decline path end-to-end through the hub:
+// a recipient who declines a contact request has the server-side pending
+// request removed (so it is NOT redelivered on reconnect) and the original
+// sender is notified so their outgoing "pending" state clears.
+func TestContactDecline(t *testing.T) {
+	path := "/tmp/hub_decline_test_db.json"
+	_ = os.Remove(path)
+	store := db.NewStore(path)
+	defer os.Remove(path)
+
+	hub := NewHub()
+	hub.SetStore(store)
+	go hub.Run()
+
+	carol := newTestClient(hub, "carol") // original sender
+	dave := newTestClient(hub, "dave")   // recipient
+	hub.register <- carol
+	hub.register <- dave
+	time.Sleep(50 * time.Millisecond)
+
+	// carol sends a contact request to dave.
+	req, _ := json.Marshal(WSMessage{Type: "contact_request", Payload: WSPayload{
+		ContactID: "req1", FromUserID: "carol", ToUserID: "dave",
+		DisplayName: "Carol", PublicKey: "pk", Fingerprint: "fp",
+	}})
+	hub.broadcast <- req
+	time.Sleep(50 * time.Millisecond)
+	drain(dave) // consume the live delivery to dave
+
+	if got := store.GetPendingContactRequests("dave"); len(got) != 1 {
+		t.Fatalf("expected 1 pending request for dave, got %d", len(got))
+	}
+
+	// dave declines.
+	dec, _ := json.Marshal(WSMessage{Type: "contact_decline", Payload: WSPayload{
+		ContactID: "req1", FromUserID: "dave", ToUserID: "carol",
+		DisplayName: "Dave",
+	}})
+	hub.broadcast <- dec
+	time.Sleep(50 * time.Millisecond)
+
+	// Server-side pending request must be gone → not redelivered on reconnect.
+	if got := store.GetPendingContactRequests("dave"); len(got) != 0 {
+		t.Fatalf("pending request not removed after decline: %d", len(got))
+	}
+	// carol (original sender) must be notified of the decline.
+	cDec, cOk := waitForMessage(carol, time.Second)
+	if !cOk || cDec.Type != "contact_decline" {
+		t.Fatalf("carol did not receive contact_decline (ok=%v type=%s)", cOk, cDec.Type)
+	}
+}
