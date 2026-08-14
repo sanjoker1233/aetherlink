@@ -62,6 +62,10 @@ interface AppState {
   updateMessageStatus: (msgId: string, status: Message['status']) => void
   markMessagesRead: (convId: string, ids: string[]) => void
   removeMessage: (convId: string, msgId: string) => void
+  // Merge older history fetched from the server into the front of a
+  // conversation thread. Dedupes by message id and keeps the thread sorted by
+  // timestamp so pagination (load-older) never produces duplicates or reordering.
+  prependMessages: (convId: string, msgs: any[]) => void
 
   setMeshNetwork: (n: MeshNetwork) => void
   updateNetworkNode: (n: NetworkNode) => void
@@ -221,6 +225,17 @@ export const useStore = create<AppState>((set, get) => ({
     set({ messages, conversations })
     saveToStorage({ messages, conversations })
     scheduleDisappear(convId, msg)
+  },
+  prependMessages: (convId, msgs) => {
+    const existing = get().messages[convId] || []
+    const seen = new Set(existing.map((m) => m.id))
+    const incoming = (msgs || []).filter((m) => m && m.id && !seen.has(m.id))
+    if (incoming.length === 0) return
+    const merged = [...incoming, ...existing].sort(
+      (a, b) => (a.timestamp || 0) - (b.timestamp || 0)
+    )
+    const messages = { ...get().messages, [convId]: merged }
+    set({ messages }); saveToStorage({ messages })
   },
   updateMessageStatus: (msgId, status) => {
     const messages = { ...get().messages }

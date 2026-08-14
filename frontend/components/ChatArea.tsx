@@ -7,6 +7,7 @@ import { Avatar } from '@/components/ui'
 import { GlassButton } from '@/components/ui/GlassButton'
 import { useStore } from '@/lib/store'
 import { wsManager } from '@/lib/ws-client'
+import { api } from '@/lib/api'
 import type { Message } from '@/lib/types'
 
 export function ChatArea() {
@@ -20,6 +21,11 @@ export function ChatArea() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const lastTypingRef = useRef(0)
   const [search, setSearch] = useState('')
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const [hasMoreHistory, setHasMoreHistory] = useState(true)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const loadingOlderRef = useRef(false)
+  const hasMoreRef = useRef(true)
   const { activeConversationId, setActiveConversation, setSelectedMessage, messages, user, conversations, settings, typing } = useStore()
 
   const currentMessages = activeConversationId ? (messages[activeConversationId] || []) : []
@@ -67,6 +73,48 @@ export function ChatArea() {
     // Reflect locally so we don't re-send the same receipt on every render.
     useStore.getState().markMessagesRead(activeConversationId, ids)
   }, [activeConversationId, currentMessages, user])
+
+  // Pagination: load older history from the server when the user scrolls to the
+  // top of the thread. The backend caps pages (GET /api/messages?limit&before),
+  // so we stop once a page returns fewer than the limit.
+  const loadOlderMessages = async () => {
+    if (!activeConversationId || loadingOlderRef.current || !hasMoreRef.current) return
+    const msgs = useStore.getState().messages[activeConversationId] || []
+    if (msgs.length === 0) return
+    const oldest = Math.min(...msgs.map((m) => m.timestamp || Date.now()))
+    loadingOlderRef.current = true
+    setLoadingOlder(true)
+    try {
+      const older = await api.getMessages(activeConversationId, { limit: 50, before: oldest })
+      if (Array.isArray(older) && older.length > 0) {
+        useStore.getState().prependMessages(activeConversationId, older)
+        const more = older.length >= 50
+        setHasMoreHistory(more)
+        hasMoreRef.current = more
+      } else {
+        setHasMoreHistory(false); hasMoreRef.current = false
+      }
+    } catch {
+      setHasMoreHistory(false); hasMoreRef.current = false
+    } finally {
+      loadingOlderRef.current = false
+      setLoadingOlder(false)
+    }
+  }
+
+  const handleScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    if (el.scrollTop < 80 && !loadingOlderRef.current && hasMoreRef.current) {
+      void loadOlderMessages()
+    }
+  }
+
+  // Reset pagination state whenever the active conversation changes.
+  useEffect(() => {
+    setHasMoreHistory(true); hasMoreRef.current = true
+    setLoadingOlder(false); loadingOlderRef.current = false
+  }, [activeConversationId])
 
   const handleSend = () => {
     const text = input.trim()
@@ -191,7 +239,10 @@ export function ChatArea() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-3">
+        {loadingOlder && (
+          <div className="text-center text-[10px] text-gray-500 py-1">Chargement des messages précédents…</div>
+        )}
         <AnimatePresence>
           {visibleMessages.map((msg) => {
             const isEncrypted = msg.encrypted

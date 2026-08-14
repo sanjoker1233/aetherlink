@@ -102,8 +102,20 @@ export class CryptAPI {
     return this.request('/api/meshtastic/nodes')
   }
 
-  async getMessages(convID: string): Promise<any[]> {
-    return this.request(`/api/messages/${convID}`)
+  // Fetch a conversation's history. Without params it returns the full thread
+  // (backwards-compatible with existing callers). `limit` caps the page size and
+  // `before` (unix-ms timestamp) returns only messages strictly older than it,
+  // enabling cursor-based pagination from the UI (load older on scroll-to-top).
+  async getMessages(convID: string, params?: { limit?: number; before?: number }): Promise<any[]> {
+    let url = `/api/messages/${convID}`
+    if (params) {
+      const q = new URLSearchParams()
+      if (params.limit) q.set('limit', String(params.limit))
+      if (params.before) q.set('before', String(params.before))
+      const s = q.toString()
+      if (s) url += '?' + s
+    }
+    return this.request(url)
   }
 
   async sendMessage(conversationId: string, senderId: string, content: string, encrypted: boolean, encryptedKey?: string, iv?: string): Promise<any> {
