@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"crypto/rand"
 	"encoding/base64"
@@ -99,8 +100,15 @@ func main() {
 	go hub.Run()
 
 	// WebPush: notify recipients who have no live WS connection. VAPID keys
-	// come from env in production; otherwise an ephemeral pair is generated.
-	pushService := push.New("mailto:push@cryptmessenger.local", os.Getenv("VAPID_PUBLIC_KEY"), os.Getenv("VAPID_PRIVATE_KEY"))
+	// come from env in production (stable across restarts); otherwise we
+	// generate a keypair once and persist it under DATA_DIR/vapid.json so
+	// existing push subscriptions keep working after a restart.
+	var pushService *push.Service
+	if os.Getenv("VAPID_PUBLIC_KEY") != "" && os.Getenv("VAPID_PRIVATE_KEY") != "" {
+		pushService = push.New("mailto:push@cryptmessenger.local", os.Getenv("VAPID_PUBLIC_KEY"), os.Getenv("VAPID_PRIVATE_KEY"))
+	} else {
+		pushService = push.NewFromFile("mailto:push@cryptmessenger.local", dataDir)
+	}
 	hub.SetPushHook(func(recipientID, senderID string) {
 		sub := store.GetPushSubscription(recipientID)
 		if sub == nil {
@@ -342,13 +350,39 @@ func main() {
 			// should replace it. See audit finding #5.
 			userID := r.Header.Get("X-User-ID")
 			convID := chi.URLParam(r, "convID")
-			if !conversationHasMember(convID, userID) {
+			if !store.IsConversationMember(convID, userID) && !conversationHasMember(convID, userID) {
 				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 				return
 			}
 			msgs := store.GetMessages(convID)
 			if msgs == nil {
 				msgs = []map[string]interface{}{}
+			}
+			// Pagination: ?limit=N (default 100, max 500) returns the most
+			// recent N messages; ?before=T (unix ms) returns messages strictly
+			// older than T. Avoids shipping an entire long history in one call.
+			if before := r.URL.Query().Get("before"); before != "" {
+				if t, err := strconv.ParseInt(before, 10, 64); err == nil && t > 0 {
+					filtered := make([]map[string]interface{}, 0, len(msgs))
+					for _, m := range msgs {
+						if ts, _ := m["timestamp"].(float64); int64(ts) < t {
+							filtered = append(filtered, m)
+						}
+					}
+					msgs = filtered
+				}
+			}
+			if limit := r.URL.Query().Get("limit"); limit != "" {
+				if n, err := strconv.Atoi(limit); err == nil && n > 0 {
+					if n > 500 {
+						n = 500
+					}
+					if len(msgs) > n {
+						msgs = msgs[len(msgs)-n:]
+					}
+				}
+			} else if len(msgs) > 100 {
+				msgs = msgs[len(msgs)-100:]
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(msgs)
@@ -375,7 +409,7 @@ func main() {
 				http.Error(w, `{"error":"missing required fields"}`, http.StatusBadRequest)
 				return
 			}
-			if !conversationHasMember(body.ConversationID, userID) {
+			if !store.IsConversationMember(body.ConversationID, userID) && !conversationHasMember(body.ConversationID, userID) {
 				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
 				return
 			}
@@ -603,8 +637,19 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
-	if err := srv.ListenAndServe(); err != nil {
-		log.Fatal(err)
+	// Optional TLS: if TLS_CERT_FILE / TLS_KEY_FILE are set the server serves
+	// HTTPS directly. In production we still recommend terminating TLS at a
+	// reverse proxy (see Caddyfile) — this is a convenience for simple deploys.
+	tlsCert, tlsKey := os.Getenv("TLS_CERT_FILE"), os.Getenv("TLS_KEY_FILE")
+	if tlsCert != "" && tlsKey != "" {
+		log.Printf("serving TLS on %s", bind)
+		if err := srv.ListenAndServeTLS(tlsCert, tlsKey); err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		if err := srv.ListenAndServe(); err != nil {
+			log.Fatal(err)
+		}
 	}
 }
 

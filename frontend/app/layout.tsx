@@ -6,6 +6,8 @@ import { NetworkBar } from '@/components/NetworkBar'
 import { Sidebar } from '@/components/Sidebar'
 import { WSInit } from '@/components/WSInit'
 import { SWRegister } from '@/components/SWRegister'
+import { PWAInstall } from '@/components/PWAInstall'
+import { ConnectionBanner } from '@/components/ConnectionBanner'
 import { ContactRequestBadge } from '@/components/ContactRequestBadge'
 import { MessageDetail } from '@/components/MessageDetail'
 import { NavSync } from '@/components/NavSync'
@@ -38,6 +40,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <NavSync />
         <WSInit />
         <SWRegister />
+        <PWAInstall />
+        <ConnectionBanner />
         <ContactRequestBadge />
         <MessageDetail />
         <ServerGuard>

@@ -42,6 +42,7 @@ export function AuthPage() {
       const kp: AuthKeyPair = { publicKey, privateKey, fingerprint: fp }
       let userId = CryptCrypto.generateId()
       let registered = false
+      let registerErr = ''
 
       try {
         // Two-step register with proof-of-possession:
@@ -55,7 +56,10 @@ export function AuthPage() {
         userId = res.userId
         api.setToken(res.token)
         registered = true
-      } catch {
+      } catch (e: any) {
+        // Keep the real server rejection (e.g. "display name already taken")
+        // so we can surface it instead of a generic "unreachable" message.
+        registerErr = e?.message || ''
       }
 
       const user: UserType = {
@@ -73,7 +77,19 @@ export function AuthPage() {
       localStorage.setItem('crypt_identity', JSON.stringify({
         user, publicKey, fingerprint: fp,
       }))
-      if (!registered) setError("Account created locally. Backend unreachable — others won't be able to find you while the server is offline.")
+      if (!registered) {
+        // The key-pair was generated and stored locally, but the server-side
+        // registration did not complete. Distinguish a real rejection (e.g.
+        // duplicate display name) from a genuine connectivity problem so the
+        // user gets an actionable message instead of always "unreachable".
+        const m = registerErr.match(/error"\s*:\s*"([^"]+)"/i)
+        const reason = m ? m[1] : ''
+        if (reason) {
+          setError(reason.charAt(0).toUpperCase() + reason.slice(1))
+        } else {
+          setError("Account created locally. Backend unreachable — others won't be able to find you while the server is offline.")
+        }
+      }
     } catch (err) {
       setError('Error generating keys')
     }

@@ -23,16 +23,27 @@ func newTestClient(hub *Hub, userID string) *Client {
 }
 
 // waitForMessage reads one frame from the client's send channel or times out.
+// "presence" frames (emitted on connect/disconnect) are ignored so routing
+// tests observe the message they actually care about.
 func waitForMessage(c *Client, timeout time.Duration) (WSMessage, bool) {
-	select {
-	case raw := <-c.send:
-		var msg WSMessage
-		if err := json.Unmarshal(raw, &msg); err != nil {
+	deadline := time.Now().Add(timeout)
+	for {
+		select {
+		case raw := <-c.send:
+			var msg WSMessage
+			if err := json.Unmarshal(raw, &msg); err != nil {
+				return WSMessage{}, false
+			}
+			if msg.Type == "presence" {
+				if time.Now().After(deadline) {
+					return WSMessage{}, false
+				}
+				continue
+			}
+			return msg, true
+		case <-time.After(time.Until(deadline)):
 			return WSMessage{}, false
 		}
-		return msg, true
-	case <-time.After(timeout):
-		return WSMessage{}, false
 	}
 }
 

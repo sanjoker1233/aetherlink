@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"golang.org/x/time/rate"
 )
 
 type Store interface {
@@ -25,6 +26,12 @@ type Store interface {
 	GetUser(userID string) map[string]interface{}
 	GetConversationMembers(convID string) []string
 	IsConversationMember(convID, userID string) bool
+	// Message persistence for offline / multi-device delivery.
+	SaveMessage(convID string, msg map[string]interface{})
+	GetMessages(convID string) []map[string]interface{}
+	DeleteMessage(convID, id string)
+	ListConversations(userID string) []map[string]interface{}
+	SaveConversation(conv map[string]interface{})
 }
 
 // allowedWSOrigins is populated at package init from ALLOWED_ORIGINS.
@@ -112,6 +119,11 @@ type WSPayload struct {
 	// "typing…" indicator. (Was previously dropped because WSPayload had no
 	// Typing field — the boolean never survived the round-trip.)
 	Typing bool `json:"typing,omitempty"`
+
+	// Presence: broadcast when a user connects/disconnects so peers can show
+	// a real online/offline indicator in the contact list.
+	PresenceUserID string `json:"presenceUserId,omitempty"`
+	PresenceStatus string `json:"presenceStatus,omitempty"`
 }
 
 type WSMessage struct {
@@ -152,6 +164,11 @@ type Hub struct {
 	// only the original author can later "delete for everyone" it. route()
 	// runs on the single hub goroutine, so this map needs no extra locking.
 	msgOwners map[string]string
+
+	// sendLimiters rate-limits message/typing frames per user to prevent a
+	// single client from flooding the hub or its peers.
+	limitMu  sync.Mutex
+	limiters map[string]*rate.Limiter
 }
 
 func NewHub() *Hub {
@@ -161,6 +178,7 @@ func NewHub() *Hub {
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 		msgOwners:  make(map[string]string),
+		limiters:   make(map[string]*rate.Limiter),
 	}
 }
 
@@ -219,7 +237,29 @@ func (h *Hub) Run() {
 					deliveredAccept++
 				}
 			}
+
+			// Replay any messages persisted while this user was offline (or on a
+			// different device). Delivered as "message_sync" so the client merges
+			// them silently — no duplicate OS notification for historical messages.
+			if h.store != nil {
+				for _, conv := range h.store.ListConversations(client.userID) {
+					cid, _ := conv["id"].(string)
+					if cid == "" {
+						continue
+					}
+					for _, m := range h.store.GetMessages(cid) {
+						b, _ := json.Marshal(m)
+						var p WSPayload
+						if json.Unmarshal(b, &p) == nil {
+							h.sendToClient(client, "message_sync", p)
+						}
+					}
+				}
+			}
+
 			log.Printf("[WS] %s connected (delivered %d requests, %d accepts)", client.userID, deliveredReq, deliveredAccept)
+			// Tell peers who share a conversation that this user is now online.
+			h.broadcastPresence(client.userID, "online")
 
 		case client := <-h.unregister:
 			h.mu.Lock()
@@ -229,6 +269,8 @@ func (h *Hub) Run() {
 			}
 			h.mu.Unlock()
 			log.Printf("[WS] %s disconnected", client.userID)
+			// Tell peers this user went offline so their indicator updates.
+			h.broadcastPresence(client.userID, "offline")
 
 		case raw := <-h.broadcast:
 			var msg WSMessage
@@ -243,7 +285,11 @@ func (h *Hub) Run() {
 func (h *Hub) route(msg WSMessage) {
 	switch msg.Type {
 		case "message":
-		if msg.Payload.ConversationID == "" || msg.Payload.SenderID == "" {
+			if !h.allowSend(msg.Payload.SenderID) {
+				log.Printf("[WS] dropping message from %s: rate limited", msg.Payload.SenderID)
+				return
+			}
+			if msg.Payload.ConversationID == "" || msg.Payload.SenderID == "" {
 			return
 		}
 		ack := WSPayload{ID: msg.Payload.ID, Status: "delivered", Timestamp: now()}
@@ -252,6 +298,31 @@ func (h *Hub) route(msg WSMessage) {
 		// Record authorship so only the sender may later delete this message
 		// for everyone (see the message_delete case below).
 		h.msgOwners[msg.Payload.ID] = msg.Payload.SenderID
+
+		// Persist the message so an offline recipient (or a second device)
+		// can retrieve it on (re)connect. The body is end-to-end encrypted;
+		// the server stores only ciphertext it could not read even if it tried.
+		if h.store != nil {
+			if b, err := json.Marshal(msg.Payload); err == nil {
+				var m map[string]interface{}
+				if json.Unmarshal(b, &m) == nil && m != nil {
+					h.store.SaveMessage(msg.Payload.ConversationID, m)
+				}
+			}
+			// Auto-register a 1:1 DM conversation server-side (first time a
+			// message is sent) so the recipient's ListConversations — used to
+			// replay offline messages — includes it. Groups are already
+			// registered through the API, so we only do this for plain DMs
+			// (single recipient, no per-member "recipients" map).
+			if !h.store.IsConversationMember(msg.Payload.ConversationID, msg.Payload.SenderID) &&
+				msg.Payload.RecipientID != "" && len(msg.Payload.Recipients) == 0 {
+				h.store.SaveConversation(map[string]interface{}{
+					"id":      msg.Payload.ConversationID,
+					"type":    "dm",
+					"members": []interface{}{msg.Payload.SenderID, msg.Payload.RecipientID},
+				})
+			}
+		}
 
 		// Group / multi-member conversation: relay to every member except sender.
 		if h.store != nil {
@@ -339,6 +410,9 @@ func (h *Hub) route(msg WSMessage) {
 		h.sendToUser(msg.Payload.ToUserID, "user_info", msg.Payload)
 
 	case "typing":
+		if !h.allowSend(msg.Payload.SenderID) {
+			return
+		}
 		// Relay typing presence to the conversation peer only (never broadcast
 		// to every connected client — that would leak who is typing to anyone).
 		if msg.Payload.ConversationID == "" || msg.Payload.RecipientID == "" {
@@ -374,6 +448,11 @@ func (h *Hub) route(msg WSMessage) {
 		if msg.Payload.ConversationID == "" || msg.Payload.ID == "" {
 			return
 		}
+		// Drop the stored copy so an offline recipient who reconnects later
+		// does not receive a message that was already unsent.
+		if h.store != nil {
+			h.store.DeleteMessage(msg.Payload.ConversationID, msg.Payload.ID)
+		}
 		owner, ok := h.msgOwners[msg.Payload.ID]
 		if !ok || owner != msg.Payload.SenderID {
 			log.Printf("[WS] dropping message_delete: sender %s is not the author of %s", msg.Payload.SenderID, msg.Payload.ID)
@@ -408,6 +487,46 @@ func (h *Hub) route(msg WSMessage) {
 // authorizedRecipient enforces server-side that `recipient` is either a
 // contact of `sender` (either direction) or a member of the conversation.
 // Mirrors the REST handlers' conversationHasMember / contact-key checks.
+// allowSend enforces a per-user rate limit on message/typing frames so a
+// single client cannot flood the hub or its peers. 5 events/sec with a burst
+// of 20 — generous for real usage, but stops a naive spammer instantly.
+func (h *Hub) allowSend(userID string) bool {
+	if userID == "" {
+		return false
+	}
+	h.limitMu.Lock()
+	l, ok := h.limiters[userID]
+	if !ok {
+		l = rate.NewLimiter(rate.Limit(5), 20)
+		h.limiters[userID] = l
+	}
+	h.limitMu.Unlock()
+	return l.Allow()
+}
+
+// broadcastPresence notifies every currently-online peer that shares a
+// conversation with userID of their new presence status, so each peer's
+// contact list can show a real online/offline indicator.
+func (h *Hub) broadcastPresence(userID, status string) {
+	if h.store == nil || userID == "" {
+		return
+	}
+	seen := map[string]bool{}
+	for _, conv := range h.store.ListConversations(userID) {
+		cid, _ := conv["id"].(string)
+		if cid == "" {
+			continue
+		}
+		for _, peer := range h.store.GetConversationMembers(cid) {
+			if peer == userID || seen[peer] {
+				continue
+			}
+			seen[peer] = true
+			h.sendToUser(peer, "presence", WSPayload{PresenceUserID: userID, PresenceStatus: status})
+		}
+	}
+}
+
 func (h *Hub) authorizedRecipient(sender, recipient, convID string) bool {
 	if sender == "" || recipient == "" {
 		return false

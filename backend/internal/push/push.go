@@ -3,6 +3,8 @@ package push
 import (
 	"encoding/json"
 	"log"
+	"os"
+	"path/filepath"
 
 	wp "github.com/SherClockHolmes/webpush-go"
 )
@@ -36,6 +38,44 @@ func New(subject, pubEnv, privEnv string) *Service {
 	s.vapidPublic = pub
 	log.Printf("[push] WARNING: VAPID keys auto-generated (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY not set). Push subscriptions are ephemeral and break on restart — set them in production.")
 	return s
+}
+
+// NewFromFile behaves like New but persists a freshly generated VAPID keypair
+// to <dataDir>/vapid.json (0600) so push subscriptions survive restarts. If
+// the file already exists it is reused. Explicit VAPID_PUBLIC_KEY /
+// VAPID_PRIVATE_KEY env vars (see New) always take precedence in main.
+func NewFromFile(subject, dataDir string) *Service {
+	if dataDir != "" {
+		path := filepath.Join(dataDir, "vapid.json")
+		if b, err := os.ReadFile(path); err == nil {
+			var k struct {
+				Public  string `json:"public"`
+				Private string `json:"private"`
+			}
+			if json.Unmarshal(b, &k) == nil && k.Private != "" {
+				log.Printf("[push] loaded persisted VAPID keys from %s", path)
+				return &Service{subject: subject, vapidPublic: k.Public, vapidPrivate: k.Private}
+			}
+		}
+		// Generate once and persist so a later restart reuses the same keys.
+		priv, pub, err := wp.GenerateVAPIDKeys()
+		if err != nil {
+			log.Printf("[push] failed to generate VAPID keys: %v", err)
+			return &Service{subject: subject}
+		}
+		if dataDir != "" {
+			if blob, err := json.Marshal(struct {
+				Public  string `json:"public"`
+				Private string `json:"private"`
+			}{pub, priv}); err == nil {
+				_ = os.WriteFile(path, blob, 0600)
+				log.Printf("[push] generated and persisted VAPID keys to %s", path)
+			}
+		}
+		return &Service{subject: subject, vapidPublic: pub, vapidPrivate: priv}
+	}
+	// No data dir: fall back to in-memory ephemeral keys (warns in New).
+	return New(subject, "", "")
 }
 
 // PublicKey returns the VAPID public key the frontend needs to subscribe.

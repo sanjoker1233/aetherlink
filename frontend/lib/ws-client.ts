@@ -31,10 +31,16 @@ export class WSManager {
   private queue: string[] = []
   private isConnected = false
   private userId = ''
+  // After exponential backoff is exhausted we fall back to a slow periodic
+  // retry so a mobile client that lost connectivity (e.g. backgrounded on
+  // Android) eventually reconnects instead of staying silently dead.
+  private slowTimer: ReturnType<typeof setInterval> | null = null
+  private listenersBound = false
 
   connect(userId: string) {
     if (this.ws?.readyState === WebSocket.OPEN) return
     this.userId = userId
+    this.bindListeners()
     requestNotificationPermission()
 
     try {
@@ -42,17 +48,20 @@ export class WSManager {
       this.ws.onopen = () => {
         this.isConnected = true
         this.reconnectAttempts = 0
+        this.stopSlowRetry()
+        useStore.getState().setWsConnected(true)
         this.auth()
         this.flush()
       }
       this.ws.onmessage = async (event) => {
         const lines = event.data.split('\n').filter(Boolean)
         for (const line of lines) {
-          try { await this.handle(JSON.parse(line)) } catch {}
+          try { await this.handle(JSON.parse(line)) } catch (e) { console.warn('[ws] dropped unparseable frame', e) }
         }
       }
       this.ws.onclose = () => {
         this.isConnected = false
+        useStore.getState().setWsConnected(false)
         checkServer()
         this.reconnect()
       }
@@ -64,9 +73,11 @@ export class WSManager {
 
   disconnect() {
     this.reconnectAttempts = this.maxReconnect
+    this.stopSlowRetry()
     this.ws?.close()
     this.ws = null
     this.isConnected = false
+    useStore.getState().setWsConnected(false)
   }
 
   send(type: string, payload: any) {
@@ -94,10 +105,55 @@ export class WSManager {
   }
 
   private reconnect() {
-    if (this.reconnectAttempts >= this.maxReconnect) return
+    if (this.reconnectAttempts >= this.maxReconnect) {
+      // Exponential backoff exhausted: switch to a slow persistent retry so a
+      // returning connection (foregrounding the app on Android, regaining
+      // signal) eventually re-establishes the socket instead of staying dead.
+      this.startSlowRetry()
+      return
+    }
     this.reconnectAttempts++
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000)
     setTimeout(() => this.connect(this.userId), delay)
+  }
+
+  private startSlowRetry() {
+    if (this.slowTimer) return
+    this.slowTimer = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.stopSlowRetry()
+        return
+      }
+      this.reconnectAttempts = 0
+      this.connect(this.userId)
+    }, 30000)
+  }
+
+  private stopSlowRetry() {
+    if (this.slowTimer) {
+      clearInterval(this.slowTimer)
+      this.slowTimer = null
+    }
+  }
+
+  // Bind browser lifecycle events once so we reconnect immediately when the
+  // device comes back online or the tab is foregrounded — critical on mobile,
+  // where the OS suspends sockets while the app is backgrounded.
+  private bindListeners() {
+    if (this.listenersBound || typeof window === 'undefined') return
+    this.listenersBound = true
+    window.addEventListener('online', () => {
+      if (this.ws?.readyState !== WebSocket.OPEN) {
+        this.reconnectAttempts = 0
+        this.connect(this.userId)
+      }
+    })
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && this.ws?.readyState !== WebSocket.OPEN) {
+        this.reconnectAttempts = 0
+        this.connect(this.userId)
+      }
+    })
   }
 
   private async handle(msg: { type: string; payload: any }) {
@@ -136,6 +192,36 @@ export class WSManager {
             () => store.setActiveConversation(p.conversationId)
           )
         }
+        break
+      }
+
+      case 'message_sync': {
+        // Offline / multi-device replay pushed by the server on (re)connect.
+        // Merged silently: no OS notification (would spam for every historical
+        // message), but addMessage still bumps the unread badge for messages
+        // we didn't already have locally.
+        const p = msg.payload
+        const myId = store.user?.id
+        let plainContent = ''
+        const mine = p.recipients && myId ? p.recipients[myId] : undefined
+        const encContent = mine?.content ?? p.content
+        const encKey = mine?.encryptedKey ?? p.encryptedKey
+        const encIV = mine?.iv ?? p.iv
+        if (p.encrypted && store.keyPair?.privateKey && encContent && encKey && encIV) {
+          try {
+            plainContent = await decryptMessage(encIV, encKey, encContent, store.keyPair.privateKey)
+          } catch {}
+        }
+        store.addMessage(p.conversationId, {
+          id: p.id, conversationId: p.conversationId,
+          senderId: p.senderId, content: p.content,
+          plainContent: plainContent || undefined,
+          encrypted: p.encrypted, encryptedKey: p.encryptedKey,
+          iv: p.iv, timestamp: p.timestamp || Date.now(),
+          status: 'sent',
+          ephemeral: p.ephemeral || undefined,
+          ttl: p.ttl || undefined,
+        })
         break
       }
 
@@ -218,6 +304,19 @@ export class WSManager {
         }
         break
       }
+
+      case 'presence': {
+        // Real-time presence: a peer connected or disconnected. Update the
+        // matching contact's status so the UI shows an accurate online dot.
+        const p = msg.payload
+        if (p.presenceUserId) {
+          store.setContactPresence(
+            p.presenceUserId,
+            p.presenceStatus === 'online' ? 'online' : 'offline'
+          )
+        }
+        break
+      }
     }
   }
 
@@ -238,9 +337,10 @@ export class WSManager {
     if (members.length > 1) {
       const recipients: Record<string, { content: string; encryptedKey: string; iv: string }> = {}
       let allEncrypted = true
+      const missing: string[] = []
       for (const mid of members) {
         const contact = store.contacts.find((c) => c.userId === mid)
-        if (!contact?.publicKey) { allEncrypted = false; continue }
+        if (!contact?.publicKey) { allEncrypted = false; missing.push(contact?.displayName || mid); continue }
         try {
           const r = await encryptMessage(plaintext, contact.publicKey)
           recipients[mid] = { content: r.ciphertext, encryptedKey: r.encryptedKey, iv: r.iv }
@@ -258,6 +358,15 @@ export class WSManager {
       const { plainContent: _omit, ...wireMsg } = msg
       this.send('message', { ...wireMsg, recipientId: members[0], recipients })
       store.updateMessageStatus(msgId, 'sent')
+      if (missing.length) {
+        // Members without a public key can't decrypt the per-recipient
+        // ciphertext, so they receive nothing — warn the sender instead of
+        // letting the message silently vanish for them.
+        showToast(
+          'Message partiel',
+          `${missing.join(', ')} n'a pas encore de clé et ne recevra pas ce message`,
+        )
+      }
       return
     }
 

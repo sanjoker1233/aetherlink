@@ -6,7 +6,7 @@ import type {
   MeshNetwork, NetworkNode, AuthKeyPair, AppSettings, TabType, ContactRequest,
 } from './types'
 import { api } from './api'
-import { loadPrivateKey, clearPrivateKey, decryptMessage } from './e2e'
+import { loadPrivateKey, clearPrivateKey, decryptMessage, decryptBytes, bytesToB64 } from './e2e'
 
 interface AppState {
   user: User | null
@@ -28,6 +28,8 @@ interface AppState {
   activeTab: TabType
   isSidebarOpen: boolean
   serverAvailable: boolean | null
+  wsConnected: boolean
+  setWsConnected: (v: boolean) => void
   typing: Record<string, boolean>
   settings: AppSettings
   hydrated: boolean
@@ -42,6 +44,7 @@ interface AppState {
   addContact: (c: Contact) => void
   removeContact: (id: string) => void
   setContactVerified: (userId: string, verified: boolean) => void
+  setContactPresence: (userId: string, status: Contact['status']) => void
 
   setContactRequests: (r: ContactRequest[]) => void
   addContactRequest: (r: ContactRequest) => void
@@ -134,6 +137,7 @@ export const useStore = create<AppState>((set, get) => ({
   activeNetwork: 'internet',
   networkStrength: 100,
   serverAvailable: null,
+  wsConnected: false,
   typing: {},
   activeTab: 'chats',
   isSidebarOpen: true,
@@ -144,6 +148,12 @@ export const useStore = create<AppState>((set, get) => ({
   setAuthenticated: (v) => set({ isAuthenticated: v }),
 
   setContacts: (contacts) => { set({ contacts }); saveToStorage({ contacts }) },
+  setContactPresence: (userId, status) => {
+    const contacts = get().contacts.map((c) =>
+      c.userId === userId || c.id === userId ? { ...c, status } : c
+    )
+    set({ contacts })
+  },
   addContact: (contact) => {
     const contacts = [...get().contacts, contact]
     set({ contacts }); saveToStorage({ contacts })
@@ -267,6 +277,7 @@ export const useStore = create<AppState>((set, get) => ({
   setActiveTab: (t) => set({ activeTab: t }),
   setSidebarOpen: (v) => set({ isSidebarOpen: v }),
   setServerAvailable: (v) => set({ serverAvailable: v }),
+  setWsConnected: (v) => set({ wsConnected: v }),
   setTyping: (conversationId, typing) => {
     set((s) => ({ typing: { ...s.typing, [conversationId]: typing } }))
     if (typing) {
@@ -315,6 +326,22 @@ export const useStore = create<AppState>((set, get) => ({
         const publicKey = parsed.publicKey || user?.publicKey || ''
         const fingerprint = parsed.fingerprint || user?.publicKeyFingerprint || ''
         if (user && publicKey) {
+          // Re-authenticate with the server (proof-of-possession login) so the
+          // in-memory JWT is refreshed after a reload. The token is never
+          // persisted to storage, so without this the WebSocket would connect
+          // with an empty token and be silently rejected by the server on every
+          // page reload — leaving the user "logged in" but unable to send or
+          // receive messages.
+          try {
+            const init = await api.loginInit(publicKey)
+            const challenge = await decryptBytes(init.encryptedChallenge, privateKey)
+            const response = bytesToB64(challenge)
+            const res = await api.loginConfirm(init.pendingId, response)
+            api.setToken(res.token)
+          } catch {
+            // Server unreachable or identity not yet registered server-side:
+            // stay authenticated locally (offline mode).
+          }
           set({
             user,
             keyPair: { publicKey, privateKey, fingerprint },

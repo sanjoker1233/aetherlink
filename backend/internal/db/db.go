@@ -118,6 +118,31 @@ func (s *Store) GetMessages(convID string) []map[string]interface{} {
 	return s.messages[convID]
 }
 
+// DeleteMessage removes a single message (by id) from a conversation thread.
+// Used when a sender "unsends" a message so an offline recipient who
+// reconnects later does not receive a message that was already deleted.
+func (s *Store) DeleteMessage(convID, id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	msgs, ok := s.messages[convID]
+	if !ok {
+		return
+	}
+	out := msgs[:0]
+	removed := false
+	for _, m := range msgs {
+		if idStr, _ := m["id"].(string); idStr == id {
+			removed = true
+			continue
+		}
+		out = append(out, m)
+	}
+	if removed {
+		s.messages[convID] = out
+		s.persist()
+	}
+}
+
 func (s *Store) SavePendingContactRequest(requestID string, data map[string]interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
