@@ -324,6 +324,18 @@ export class WSManager {
         break
       }
 
+      case 'message_expire': {
+        // Burn-after-read: the server deleted an ephemeral ("disappearing")
+        // message (either because the recipient read it, or its TTL elapsed).
+        // Remove it from the conversation UI for both members so it visibly
+        // disappears here too — not only on the sender's screen.
+        const p = msg.payload
+        if (p.conversationId && p.id) {
+          store.removeMessage(p.conversationId, p.id)
+        }
+        break
+      }
+
       case 'presence': {
         // Real-time presence: a peer connected or disconnected. Update the
         // matching contact's status so the UI shows an accurate online dot.
@@ -339,15 +351,20 @@ export class WSManager {
     }
   }
 
-  async sendEncryptedMessage(conversationId: string, plaintext: string) {
+  async sendEncryptedMessage(conversationId: string, plaintext: string, opts?: { ephemeral?: boolean }) {
     const store = useStore.getState()
     const conv = store.conversations.find((c) => c.id === conversationId)
     const user = store.user
     if (!conv || !user) return
 
     const msgId = uid()
-    const ephemeral = store.settings.disappearingTTL > 0
-    const ttl = store.settings.disappearingTTL
+    // A per-message 🔥 toggle (opts.ephemeral) forces a disappearing message
+    // for just this one send; otherwise we fall back to the global
+    // disappearing-TTL setting. ttl=0 means "burn after the recipient reads
+    // it" (the server enforces this on the read receipt).
+    const globalEphemeral = store.settings.disappearingTTL > 0
+    const ephemeral = opts?.ephemeral ?? globalEphemeral
+    const ttl = opts?.ephemeral ? 0 : store.settings.disappearingTTL
     const members = (conv.participants || []).filter((p) => p && p !== user.id)
 
     // Group (multi-member): encrypt a separate ciphertext per recipient so

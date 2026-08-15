@@ -31,6 +31,7 @@ type Store interface {
 	GetMessages(convID string) []map[string]interface{}
 	DeleteMessage(convID, id string)
 	ListConversations(userID string) []map[string]interface{}
+	ListAllConversations() []map[string]interface{}
 	SaveConversation(conv map[string]interface{})
 }
 
@@ -172,13 +173,62 @@ type Hub struct {
 }
 
 func NewHub() *Hub {
-	return &Hub{
+	h := &Hub{
 		clients:    make(map[string]*Client),
 		broadcast:  make(chan []byte, 256),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 		msgOwners:  make(map[string]string),
 		limiters:   make(map[string]*rate.Limiter),
+	}
+	// Background janitor: remove ephemeral messages whose TTL has elapsed
+	// without being read, so they can never accumulate on the server.
+	go h.runExpirationJanitor()
+	return h
+}
+
+// runExpirationJanitor purges expired ephemeral messages on a fixed cadence.
+func (h *Hub) runExpirationJanitor() {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		h.purgeExpiredEphemeral()
+	}
+}
+
+// purgeExpiredEphemeral deletes ephemeral messages that are past their TTL
+// and have not yet been removed by a read receipt. It is also exported-ish
+// (lowercase) so tests can trigger it on demand without waiting a minute.
+func (h *Hub) purgeExpiredEphemeral() {
+	if h.store == nil {
+		return
+	}
+	nowSec := float64(time.Now().Unix())
+	for _, conv := range h.store.ListAllConversations() {
+		convID, _ := conv["id"].(string)
+		if convID == "" {
+			continue
+		}
+		for _, m := range h.store.GetMessages(convID) {
+			ep, _ := m["ephemeral"].(bool)
+			if !ep {
+				continue
+			}
+			ttl, _ := m["ttl"].(float64)
+			if ttl <= 0 {
+				continue // burn-on-read only; bounded by the read receipt
+			}
+			ts, _ := m["timestamp"].(float64)
+			if ts <= 0 {
+				ts, _ = m["createdAt"].(float64)
+			}
+			if ts > 0 && nowSec-ts >= ttl {
+				if id, _ := m["id"].(string); id != "" {
+					h.store.DeleteMessage(convID, id)
+					log.Printf("[WS] purged expired ephemeral message %s in %s", id, convID)
+				}
+			}
+		}
 	}
 }
 
@@ -465,6 +515,41 @@ func (h *Hub) route(msg WSMessage) {
 			return
 		}
 		h.sendToUser(msg.Payload.RecipientID, "message_read", msg.Payload)
+
+		// Burn-after-read: ephemeral ("disappearing") messages are removed
+		// from the server as soon as the recipient has read them, and both
+		// conversation members are told to drop them from their UI. This is
+		// what makes ephemeral messages actually disappear server-side, not
+		// just on the recipient's screen.
+		if h.store != nil {
+			convID := msg.Payload.ConversationID
+			for _, mid := range msg.Payload.MessageIDs {
+				for _, m := range h.store.GetMessages(convID) {
+					if toStr(m["id"]) != mid {
+						continue
+					}
+					if ep, _ := m["ephemeral"].(bool); !ep {
+						continue
+					}
+					h.store.DeleteMessage(convID, mid)
+					exp := WSPayload{
+						ID:             mid,
+						ConversationID: convID,
+						SenderID:       toStr(m["senderId"]),
+						RecipientID:    toStr(m["recipientId"]),
+					}
+					if members := h.store.GetConversationMembers(convID); len(members) > 0 {
+						for _, mb := range members {
+							h.sendToUser(mb, "message_expire", exp)
+						}
+					} else {
+						h.sendToUser(exp.SenderID, "message_expire", exp)
+						h.sendToUser(exp.RecipientID, "message_expire", exp)
+					}
+					break
+				}
+			}
+		}
 
 	case "message_delete":
 		// Unsend ("delete for everyone"): the authenticated sender removes a

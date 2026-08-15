@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Send, Lock, Unlock, ChevronLeft, Paperclip, AlertCircle, CheckCheck, FileText, Image, X, Search } from 'lucide-react'
+import { Send, Lock, Unlock, ChevronLeft, Paperclip, AlertCircle, CheckCheck, FileText, Image, X, Search, Flame } from 'lucide-react'
 import { Avatar } from '@/components/ui'
 import { GlassButton } from '@/components/ui/GlassButton'
 import { useStore } from '@/lib/store'
@@ -25,6 +25,9 @@ export function ChatArea() {
   const [search, setSearch] = useState('')
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [hasMoreHistory, setHasMoreHistory] = useState(true)
+  // Per-message 🔥 toggle: when on, the next message is sent as a
+  // disappearing ("burn after read") message. Reset after each send.
+  const [ephemeralOn, setEphemeralOn] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const loadingOlderRef = useRef(false)
   const hasMoreRef = useRef(true)
@@ -124,10 +127,10 @@ export function ChatArea() {
     const fullText = attachments.length > 0
       ? text + '\n' + attachments.map(a => `[${a.type === 'image' ? '📷' : '📎'} ${a.name}]`).join('\n')
       : text
-    wsManager.sendEncryptedMessage(activeConversationId, fullText)
+    wsManager.sendEncryptedMessage(activeConversationId, fullText, { ephemeral: ephemeralOn })
     const peer = activeConv?.participants.find((p) => p !== user?.id)
     if (peer) wsManager.sendTyping(activeConversationId!, peer, false)
-    setInput(''); setAttachments([]); setShowAttach(false)
+    setInput(''); setAttachments([]); setShowAttach(false); setEphemeralOn(false)
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -292,6 +295,9 @@ export function ChatArea() {
                   {!showDecryptToggle && isEncrypted && (
                     <Lock size={10} className="text-amber-400/50" />
                   )}
+                  {msg.ephemeral && (
+                    <Flame size={10} className="text-orange-400/70" />
+                  )}
                   <span className="text-[10px] text-gray-500">
                     {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
@@ -343,6 +349,15 @@ export function ChatArea() {
             <button type="button" aria-label="Attach a file" onClick={() => fileInputRef.current?.click()} className="glass-button p-2.5 shrink-0"><Paperclip size={18} /></button>
             <input ref={fileInputRef} type="file" accept="image/*,.pdf,.txt,.doc,.docx" className="hidden" onChange={handleFileSelect} />
           </div>
+          <button
+            type="button"
+            aria-label="Disappearing message"
+            title={ephemeralOn ? 'Message éphémère : disparaît après lecture' : 'Rendre ce message éphémère (disparaît après lecture)'}
+            onClick={() => setEphemeralOn((v) => !v)}
+            className={`glass-button p-2.5 shrink-0 transition-colors ${ephemeralOn ? 'text-orange-400 bg-orange-500/15 border-orange-400/40' : 'text-gray-400'}`}
+          >
+            <Flame size={18} />
+          </button>
           <div className="flex-1 relative">
             <input
               value={input}

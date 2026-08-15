@@ -136,7 +136,7 @@ func (s *Store) applyOp(op walOp) {
 			}
 		case "messages":
 			if m := toMap(op.Val); m != nil {
-				s.messages[op.Key] = append(s.messages[op.Key], m)
+				s.appendMsgUnique(op.Key, m)
 			}
 		}
 	case "del":
@@ -287,10 +287,29 @@ func (s *Store) SearchUsers(query string) []map[string]interface{} {
 	return results
 }
 
+// appendMsgUnique appends a message to a conversation thread, skipping it if a
+// message with the same id is already present. Messages are immutable and
+// uniquely identified by their client-generated id, so this makes every write
+// idempotent: a WAL op that is replayed after the snapshot already reflected
+// it (e.g. a crash in the checkpoint window, or a leaked test WAL) can never
+// produce a duplicate. Without this, restarting the server could double-store
+// messages and the hub's ephemeral/count logic would see the wrong totals.
+func (s *Store) appendMsgUnique(convID string, msg map[string]interface{}) {
+	id, _ := msg["id"].(string)
+	if id != "" {
+		for _, existing := range s.messages[convID] {
+			if eid, _ := existing["id"].(string); eid == id {
+				return // already present — idempotent no-op
+			}
+		}
+	}
+	s.messages[convID] = append(s.messages[convID], msg)
+}
+
 func (s *Store) SaveMessage(convID string, msg map[string]interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.messages[convID] = append(s.messages[convID], msg)
+	s.appendMsgUnique(convID, msg)
 	s.appendOp(walOp{T: "put", Coll: "messages", Key: convID, Val: msg})
 }
 
@@ -501,6 +520,19 @@ func (s *Store) ListConversations(userID string) []map[string]interface{} {
 	return out
 }
 
+// ListAllConversations returns every conversation regardless of membership.
+// Used by background maintenance (e.g. purging expired ephemeral messages)
+// that must scan the whole store, not just one user's view.
+func (s *Store) ListAllConversations() []map[string]interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]map[string]interface{}, 0, len(s.conversations))
+	for _, conv := range s.conversations {
+		out = append(out, conv)
+	}
+	return out
+}
+
 // isMember is the lock-free helper used inside already-locked methods.
 func isMember(conv map[string]interface{}, userID string) bool {
 	members, _ := conv["members"].([]interface{})
@@ -543,7 +575,15 @@ func (s *Store) loadSnapshot() {
 		s.users = make(map[string]map[string]interface{})
 	}
 	if store.Messages != nil {
-		s.messages = store.Messages
+		// De-duplicate on load as well, so a snapshot that was ever written
+		// with a duplicate (e.g. during a crash in the checkpoint window)
+		// can never poison the in-memory state.
+		s.messages = make(map[string][]map[string]interface{}, len(store.Messages))
+		for convID, msgs := range store.Messages {
+			for _, m := range msgs {
+				s.appendMsgUnique(convID, m)
+			}
+		}
 	} else {
 		s.messages = make(map[string][]map[string]interface{})
 	}
