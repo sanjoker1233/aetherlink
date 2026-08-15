@@ -245,3 +245,9 @@
   height: 100vh;
   height: 100dvh;
 }
+
+/* Minimum touch target for Android (>= 44px per Material guidelines). */
+.tap-target {
+  min-height: 44px;
+  min-width: 44px;
+}

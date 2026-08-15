@@ -1,20 +1,22 @@
 'use client'
 
 import { motion, AnimatePresence } from 'framer-motion'
-import { Lock, MessageSquare, Search, UserPlus, UserCheck, X, Loader } from 'lucide-react'
+import { Lock, MessageSquare, Search, UserPlus, UserCheck, CheckCheck, X, Loader } from 'lucide-react'
 import { Avatar } from '@/components/ui'
 import { GlassButton } from '@/components/ui/GlassButton'
 import { useStore } from '@/lib/store'
 import { api } from '@/lib/api'
 import { wsManager } from '@/lib/ws-client'
+import { useT } from '@/lib/i18n'
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 
 export function ChatList() {
   const {
     conversations, activeConversationId, setActiveConversation,
     contactRequests, user, contacts, setSidebarOpen, pendingRequests,
-    messages, typing,
+    messages, typing, markConversationRead,
   } = useStore()
+  const t = useT()
   const closeSidebar = () => { if (window.innerWidth < 768) setSidebarOpen(false) }
   const [showSearch, setShowSearch] = useState(false)
   const [query, setQuery] = useState('')
@@ -68,6 +70,12 @@ export function ChatList() {
     setTimeout(() => setSendingTo(null), 1000)
   }, [])
 
+  const unreadTotal = conversations.reduce((n, c) => n + (c.unreadCount || 0), 0)
+  const markAllRead = useCallback(() => {
+    const { conversations: convs, markConversationRead: mark } = useStore.getState()
+    convs.forEach((c) => { if (c.unreadCount > 0) mark(c.id) })
+  }, [])
+
   const openConversation = useCallback((userId: string) => {
     const conv = conversations.find((c) => c.participants?.includes(userId))
     if (conv) { setActiveConversation(conv.id); closeSidebar() }
@@ -87,16 +95,27 @@ export function ChatList() {
             onClick={() => { setShowSearch(!showSearch); setQuery(''); if (!showSearch) { setMsgMode(false); setMsgQuery('') } }}
             icon={<UserPlus size={14} />}
           >
-            Nouvelle conversation
+            {t('action.newChat')}
           </GlassButton>
           <GlassButton
             variant={msgMode ? 'primary' : 'ghost'} size="sm" className="shrink-0"
             onClick={() => { setMsgMode(!msgMode); setMsgQuery(''); if (!msgMode) { setShowSearch(false); setQuery('') } }}
-            aria-label="Search messages"
+            aria-label={t('action.searchMessages')}
             icon={<Search size={14} />}
           >
-            Messages
+            {t('action.searchMessages')}
           </GlassButton>
+          {unreadTotal > 0 && (
+            <button
+              type="button"
+              onClick={markAllRead}
+              aria-label={t('action.markAllRead')}
+              title={t('action.markAllRead')}
+              className="glass-button p-2.5 tap-target shrink-0 text-gray-400 hover:text-amber-300"
+            >
+              <CheckCheck size={14} />
+            </button>
+          )}
         </div>
 
         <AnimatePresence>
@@ -133,7 +152,7 @@ export function ChatList() {
               )}
 
               {!loading && query && results.length === 0 && (
-                <p className="text-xs text-gray-500 text-center py-3">Aucun utilisateur trouvé</p>
+                <p className="text-xs text-gray-500 text-center py-3">{t('common.noUserFound')}</p>
               )}
 
               {results.length > 0 && (
@@ -152,7 +171,7 @@ export function ChatList() {
                       {isContact(u.userId) ? (
                         <span className="text-[10px] text-green-400 flex items-center gap-1 shrink-0"><UserCheck size={12} /> Contact</span>
                       ) : pendingRequests.includes(u.userId) ? (
-                        <span className="text-[10px] text-neon-amber flex items-center gap-1 shrink-0"><UserPlus size={12} /> Pending</span>
+                        <span className="text-[10px] text-neon-amber flex items-center gap-1 shrink-0"><UserPlus size={12} /> {t('common.pending')}</span>
                       ) : (
                         <GlassButton
                           size="sm"
@@ -161,7 +180,7 @@ export function ChatList() {
                           icon={<UserPlus size={12} />}
                           variant={sendingTo === u.userId ? 'primary' : 'ghost'}
                         >
-                          Add
+                          {t('common.add')}
                         </GlassButton>
                       )}
                     </div>
@@ -196,7 +215,7 @@ export function ChatList() {
                 )}
               </div>
               {msgQuery && msgResults && msgResults.length === 0 && (
-                <p className="text-xs text-gray-500 text-center py-3">Aucun message trouvé</p>
+                <p className="text-xs text-gray-500 text-center py-3">{t('common.noMsgFound')}</p>
               )}
             </motion.div>
           )}
@@ -234,8 +253,8 @@ export function ChatList() {
         {conversations.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <MessageSquare size={32} className="text-gray-600 mb-3" />
-            <p className="text-sm text-gray-500">Aucune conversation</p>
-            <p className="text-xs text-gray-600 mt-1">Recherchez un utilisateur pour commencer</p>
+            <p className="text-sm text-gray-500">{t('common.none')}</p>
+            <p className="text-xs text-gray-600 mt-1">{t('common.start')}</p>
           </div>
         )}
         {(msgMode && msgQuery.trim())

@@ -98,6 +98,7 @@ export interface AuthKeyPair {
 
 export interface AppSettings {
   theme: 'dark' | 'light'
+  locale: 'fr' | 'en'
   preferredNetwork: NetworkType
   autoSwitchNetwork: boolean
   encryptionEnabled: boolean

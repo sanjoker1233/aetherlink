@@ -10,6 +10,7 @@ import { AddContactModal } from './AddContactModal'
 import { ContactVerifyModal } from './ContactVerifyModal'
 import { CreateGroupModal } from './CreateGroupModal'
 import { useStore } from '@/lib/store'
+import { useT } from '@/lib/i18n'
 import { generateId } from '@/lib/crypto'
 import type { Contact, Conversation } from '@/lib/types'
 
@@ -27,6 +28,7 @@ export function ContactsList() {
   const [verifyContact, setVerifyContact] = useState<Contact | null>(null)
   const [showGroup, setShowGroup] = useState(false)
   const { contacts, user, addConversation, setActiveConversation, setActiveTab, removeContact, setSidebarOpen } = useStore()
+  const t = useT()
 
   const filtered = contacts.filter((c) =>
     c.displayName.toLowerCase().includes(search.toLowerCase())
@@ -66,7 +68,7 @@ export function ContactsList() {
           Ajouter
         </GlassButton>
         <GlassButton variant="primary" size="sm" onClick={() => setShowGroup(true)} icon={<Users size={16} />}>
-          Groupe
+          {t('action.newGroup')}
         </GlassButton>
       </div>
 
@@ -114,7 +116,7 @@ export function ContactsList() {
             </div>
             <button
               onClick={(e) => { e.stopPropagation(); setVerifyContact(contact) }}
-              className="p-2.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0 text-amber-400 hover:text-amber-300 rounded-lg hover:bg-white/10"
+              className="p-2.5 tap-target opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0 text-amber-400 hover:text-amber-300 rounded-lg hover:bg-white/10"
               title="Vérifier le numéro de sécurité"
               aria-label="Vérifier le numéro de sécurité"
             >
@@ -122,7 +124,7 @@ export function ContactsList() {
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); handleStartChat(contact) }}
-              className="glass-button p-2.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0"
+              className="glass-button p-2.5 tap-target opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0"
               title="Démarrer une conversation"
               aria-label="Démarrer une conversation"
             >
@@ -130,7 +132,7 @@ export function ContactsList() {
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); removeContact(contact.userId) }}
-              className="p-2.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0 text-gray-500 hover:text-rose-400 rounded-lg hover:bg-white/10"
+              className="p-2.5 tap-target opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0 text-gray-500 hover:text-rose-400 rounded-lg hover:bg-white/10"
               title="Supprimer le contact"
               aria-label="Supprimer le contact"
             >

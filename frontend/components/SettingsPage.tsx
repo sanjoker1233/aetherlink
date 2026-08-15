@@ -2,17 +2,19 @@
 
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Shield, Radio, Bell, Key, Download, QrCode, Share2, Info } from 'lucide-react'
+import { Shield, Radio, Bell, Key, Download, QrCode, Share2, Info, Globe } from 'lucide-react'
 import { GlassCard } from '@/components/ui/GlassCard'
 import { GlassButton } from '@/components/ui/GlassButton'
 import { ShareIdentityModal } from './ShareIdentityModal'
 import { useStore } from '@/lib/store'
+import { useT, LOCALES } from '@/lib/i18n'
 import { exportIdentityBackup } from '@/lib/e2e'
 import { restoreFromBackup } from '@/lib/backup'
 import type { NetworkType } from '@/lib/types'
 
 export function SettingsPage() {
   const { settings, updateSettings, user } = useStore()
+  const t = useT()
   const [showShare, setShowShare] = useState(false)
 
   const [backupPass, setBackupPass] = useState('')
@@ -71,7 +73,7 @@ export function SettingsPage() {
             <Shield size={20} className="text-amber-400" />
           </div>
           <div>
-            <h3 className="text-sm font-medium text-[#f5e6d3]">Mon identité</h3>
+            <h3 className="text-sm font-medium text-[#f5e6d3]">{t('settings.identity')}</h3>
             <p className="text-xs text-gray-400">Clé RSA-4096 • {user?.publicKeyFingerprint || ''}</p>
           </div>
         </div>
@@ -81,7 +83,7 @@ export function SettingsPage() {
         </div>
         <div className="flex gap-2">
           <GlassButton variant="primary" size="sm" onClick={() => setShowShare(true)} className="flex-1" icon={<QrCode size={14} />}>
-            Partager mon identité
+            {t('action.share')}
           </GlassButton>
           <GlassButton variant="ghost" size="sm" onClick={() => {
             const a = document.createElement('a')
@@ -100,11 +102,27 @@ export function SettingsPage() {
 
       <GlassCard hover={false}>
         <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-cyan-500/20 flex items-center justify-center"><Globe size={20} className="text-cyan-400" /></div>
+          <div><h3 className="text-sm font-medium text-[#f5e6d3]">{t('settings.language')}</h3><p className="text-xs text-gray-400">Français / English</p></div>
+        </div>
+        <div className="flex gap-2">
+          {LOCALES.map((l) => (
+            <button key={l.value}
+              onClick={() => updateSettings({ locale: l.value })}
+              className={`flex-1 px-3 py-2 rounded-xl text-xs font-medium transition-all ${settings.locale === l.value ? 'bg-amber-400/20 text-amber-400 border border-amber-400/30' : 'bg-white/5 text-gray-400 border border-white/5 hover:bg-white/10'}`}>
+              {l.label}
+            </button>
+          ))}
+        </div>
+      </GlassCard>
+
+      <GlassCard hover={false}>
+        <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-xl bg-amber-600/20 flex items-center justify-center"><Radio size={20} className="text-amber-600" /></div>
-          <div><h3 className="text-sm font-medium text-[#f5e6d3]">Réseau</h3><p className="text-xs text-gray-400">Préférences</p></div>
+          <div><h3 className="text-sm font-medium text-[#f5e6d3]">{t('settings.network')}</h3><p className="text-xs text-gray-400">Préférences</p></div>
         </div>
         <div className="space-y-3">
-          <label className="text-sm text-gray-300 block mb-2">Réseau préféré</label>
+          <label className="text-sm text-gray-300 block mb-2">{t('settings.preferredNetwork')}</label>
           <div className="grid grid-cols-2 gap-2">
             {networkOptions.map((opt) => (
               <button key={opt.value}
@@ -116,10 +134,10 @@ export function SettingsPage() {
                 }`}>{opt.label}</button>
             ))}
           </div>
-          <Toggle label="Basculement auto du réseau" value={settings.autoSwitchNetwork} onChange={(v) => updateSettings({ autoSwitchNetwork: v })} />
-          <Toggle label="Mode hors-ligne" value={settings.offlineMode} onChange={(v) => updateSettings({ offlineMode: v })} />
+          <Toggle label={t('settings.autoNetwork')} value={settings.autoSwitchNetwork} onChange={(v) => updateSettings({ autoSwitchNetwork: v })} />
+          <Toggle label={t('settings.offlineMode')} value={settings.offlineMode} onChange={(v) => updateSettings({ offlineMode: v })} />
           <Toggle
-            label="Light theme"
+            label={t('settings.lightTheme')}
             value={settings.theme === 'light'}
             onChange={(v) => updateSettings({ theme: v ? 'light' : 'dark' })}
           />
@@ -129,17 +147,17 @@ export function SettingsPage() {
       <GlassCard hover={false}>
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-xl bg-orange-600/20 flex items-center justify-center"><Key size={20} className="text-orange-500" /></div>
-          <div><h3 className="text-sm font-medium text-[#f5e6d3]">Chiffrement</h3><p className="text-xs text-gray-400">Sécurité</p></div>
+          <div><h3 className="text-sm font-medium text-[#f5e6d3]">{t('settings.encryption')}</h3><p className="text-xs text-gray-400">Sécurité</p></div>
         </div>
-        <Toggle label="Chiffrement E2E" value={settings.encryptionEnabled} onChange={(v) => updateSettings({ encryptionEnabled: v })} />
-        <Toggle label="Notifications" value={settings.notificationsEnabled} onChange={(v) => updateSettings({ notificationsEnabled: v })} />
+        <Toggle label={t('settings.e2ee')} value={settings.encryptionEnabled} onChange={(v) => updateSettings({ encryptionEnabled: v })} />
+        <Toggle label={t('settings.notifications')} value={settings.notificationsEnabled} onChange={(v) => updateSettings({ notificationsEnabled: v })} />
         <Toggle
-          label="Indicateurs de saisie"
+          label={t('settings.typing')}
           value={settings.typingEnabled}
           onChange={(v) => updateSettings({ typingEnabled: v })}
         />
         <div className="pt-3 space-y-2">
-          <p className="text-sm text-gray-300">Affichage temporaire des messages</p>
+          <p className="text-sm text-gray-300">{t('settings.tempDisplay')}</p>
           <p className="text-[10px] text-gray-500">Les messages déchiffrés se verrouillent automatiquement après :</p>
           <div className="flex flex-wrap gap-1.5 mt-1">
             {[
@@ -165,7 +183,7 @@ export function SettingsPage() {
           </div>
 
           <div className="pt-3 space-y-2">
-            <p className="text-sm text-gray-300">Messages éphémères</p>
+            <p className="text-sm text-gray-300">{t('settings.ephemeral')}</p>
             <p className="text-[10px] text-gray-500">Les messages sont supprimés définitivement après :</p>
             <div className="flex flex-wrap gap-1.5 mt-1">
               {[
@@ -195,13 +213,13 @@ export function SettingsPage() {
       <GlassCard hover={false}>
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center"><Download size={20} className="text-emerald-400" /></div>
-          <div><h3 className="text-sm font-medium text-[#f5e6d3]">Sauvegarde et restauration</h3><p className="text-xs text-gray-400">Récupération d'identité chiffrée</p></div>
+          <div><h3 className="text-sm font-medium text-[#f5e6d3]">{t('settings.backup')}</h3><p className="text-xs text-gray-400">Récupération d'identité chiffrée</p></div>
         </div>
 
         <p className="text-[10px] text-gray-500 mb-2">Exportez une sauvegarde chiffrée (protégée par phrase secrète). Conservez-la en lieu sûr — elle permet de récupérer votre identité et votre historique sur un nouvel appareil.</p>
         <div className="flex gap-2 mb-2">
           <input type="password" placeholder="Phrase secrète de sauvegarde (min 8 caractères)" value={backupPass} onChange={(e) => setBackupPass(e.target.value)} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-gray-200 outline-none focus:border-amber-400/40" />
-          <GlassButton variant="primary" size="sm" onClick={handleExport}>Exporter</GlassButton>
+          <GlassButton variant="primary" size="sm" onClick={handleExport}>{t('action.export')}</GlassButton>
         </div>
 
         <div className="border-t border-white/5 my-3" />
@@ -211,7 +229,7 @@ export function SettingsPage() {
           <input type="file" accept="application/json,.json" onChange={(e) => setRestoreFile(e.target.files?.[0] || null)} className="text-xs text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-amber-400/20 file:text-amber-400 file:text-xs" />
           <div className="flex gap-2">
             <input type="password" placeholder="Phrase secrète de sauvegarde" value={restorePass} onChange={(e) => setRestorePass(e.target.value)} className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-gray-200 outline-none focus:border-amber-400/40" />
-            <GlassButton variant="ghost" size="sm" onClick={handleRestore}>Restaurer</GlassButton>
+            <GlassButton variant="ghost" size="sm" onClick={handleRestore}>{t('action.restore')}</GlassButton>
           </div>
         </div>
 

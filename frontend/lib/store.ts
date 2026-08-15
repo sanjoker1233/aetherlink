@@ -98,7 +98,7 @@ const scheduleDisappear = (convId: string, msg: Message) => {
 }
 
 const defaultSettings: AppSettings = {
-  theme: 'dark', preferredNetwork: 'hybrid', autoSwitchNetwork: true,
+  theme: 'dark', locale: 'fr', preferredNetwork: 'hybrid', autoSwitchNetwork: true,
   encryptionEnabled: true, notificationsEnabled: true, offlineMode: false,
   decryptDuration: 0, disappearingTTL: 0,
   typingEnabled: true,

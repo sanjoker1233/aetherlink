@@ -14,13 +14,14 @@ import {
 } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import { wsManager } from '@/lib/ws-client'
+import { useT } from '@/lib/i18n'
 import type { TabType } from '@/lib/types'
 
-const navItems: { id: TabType; label: string; icon: React.ReactNode }[] = [
-  { id: 'chats', label: 'Messages', icon: <MessageSquare size={20} /> },
-  { id: 'contacts', label: 'Contacts', icon: <Users size={20} /> },
-  { id: 'network', label: 'Réseau', icon: <Radio size={20} /> },
-  { id: 'settings', label: 'Réglages', icon: <Settings size={20} /> },
+const navItems: { id: TabType; key: string; icon: React.ReactNode }[] = [
+  { id: 'chats', key: 'nav.messages', icon: <MessageSquare size={20} /> },
+  { id: 'contacts', key: 'nav.contacts', icon: <Users size={20} /> },
+  { id: 'network', key: 'nav.network', icon: <Radio size={20} /> },
+  { id: 'settings', key: 'nav.settings', icon: <Settings size={20} /> },
 ]
 
 const EXPANDED = 240
@@ -28,6 +29,7 @@ const COLLAPSED = 72
 
 export function Sidebar() {
   const { activeTab, setActiveTab, isSidebarOpen, setSidebarOpen, isAuthenticated, user, contactRequests, logout } = useStore()
+  const t = useT()
   const [isMobile, setIsMobile] = useState(false)
 
   useEffect(() => {
@@ -82,10 +84,10 @@ export function Sidebar() {
       <nav className="flex-1 p-3 space-y-1">
         {navItems.map((item) => (
           <button
-            key={item.id}
             onClick={() => setActiveTab(item.id)}
+            aria-label={t(item.key)}
             className={clsx(
-              'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
+              'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 tap-target',
               activeTab === item.id
                 ? 'bg-amber-400/10 text-amber-300 border border-amber-400/15 shadow-glass-sm'
                 : 'text-[#a3866a] hover:text-[#f5e6d3] hover:bg-white/[0.04]'
@@ -110,7 +112,7 @@ export function Sidebar() {
                   exit={{ opacity: 0 }}
                   className="text-sm font-medium"
                 >
-                  {item.label}
+                  {t(item.key)}
                 </motion.span>
               )}
             </AnimatePresence>

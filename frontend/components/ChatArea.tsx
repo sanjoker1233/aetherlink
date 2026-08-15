@@ -6,6 +6,7 @@ import { Send, Lock, Unlock, ChevronLeft, Paperclip, AlertCircle, CheckCheck, Fi
 import { Avatar } from '@/components/ui'
 import { GlassButton } from '@/components/ui/GlassButton'
 import { useStore } from '@/lib/store'
+import { useT } from '@/lib/i18n'
 import { wsManager } from '@/lib/ws-client'
 import { api } from '@/lib/api'
 import type { Message } from '@/lib/types'
@@ -32,6 +33,7 @@ export function ChatArea() {
   const loadingOlderRef = useRef(false)
   const hasMoreRef = useRef(true)
   const { activeConversationId, setActiveConversation, setSelectedMessage, messages, user, conversations, settings, typing } = useStore()
+  const t = useT()
 
   const currentMessages = activeConversationId ? (messages[activeConversationId] || []) : []
   const visibleMessages = search
@@ -238,7 +240,7 @@ export function ChatArea() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Rechercher…"
+            placeholder={t('header.search')}
             aria-label="Rechercher les messages"
             className="glass-input pl-7 py-1 text-xs w-28 focus:w-44 transition-all"
           />
@@ -346,13 +348,13 @@ export function ChatArea() {
           onSubmit={(e) => { e.preventDefault(); handleSend() }}
         >
           <div className="relative">
-            <button type="button" aria-label="Attach a file" onClick={() => fileInputRef.current?.click()} className="glass-button p-2.5 shrink-0"><Paperclip size={18} /></button>
+            <button type="button" aria-label={t('composer.attach')} onClick={() => fileInputRef.current?.click()} className="glass-button p-2.5 shrink-0"><Paperclip size={18} /></button>
             <input ref={fileInputRef} type="file" accept="image/*,.pdf,.txt,.doc,.docx" className="hidden" onChange={handleFileSelect} />
           </div>
           <button
             type="button"
             aria-label="Disappearing message"
-            title={ephemeralOn ? 'Message éphémère : disparaît après lecture' : 'Rendre ce message éphémère (disparaît après lecture)'}
+            title={ephemeralOn ? t('composer.ephemeralOn') : t('composer.ephemeralOff')}
             onClick={() => setEphemeralOn((v) => !v)}
             className={`glass-button p-2.5 shrink-0 transition-colors ${ephemeralOn ? 'text-orange-400 bg-orange-500/15 border-orange-400/40' : 'text-gray-400'}`}
           >
@@ -364,12 +366,12 @@ export function ChatArea() {
               aria-label="Message"
               onChange={handleInputChange}
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
-              placeholder="Message chiffré E2E…"
+              placeholder={t('composer.placeholder')}
               className="glass-input w-full pr-4 text-base"
             />
           </div>
           <GlassButton type="submit" variant="primary" size="md" icon={<Send size={16} />}>
-            Envoyer
+            {t('action.send')}
           </GlassButton>
         </form>
       </div>

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useStore } from '@/lib/store'
+import { useT } from '@/lib/i18n'
 import { api } from '@/lib/api'
 import { GlassInput } from '@/components/ui/GlassInput'
 import { GlassButton } from '@/components/ui/GlassButton'
@@ -9,6 +10,7 @@ import type { Conversation } from '@/lib/types'
 
 export function CreateGroupModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { contacts, addConversation, setActiveConversation, setActiveTab } = useStore()
+  const t = useT()
   const [name, setName] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [error, setError] = useState('')
@@ -27,7 +29,7 @@ export function CreateGroupModal({ open, onClose }: { open: boolean; onClose: ()
   const create = async () => {
     const members = Array.from(selected)
     if (members.length < 1) {
-      setError('Sélectionnez au moins un contact.')
+      setError(t('group.selectOne'))
       return
     }
     try {
@@ -49,22 +51,22 @@ export function CreateGroupModal({ open, onClose }: { open: boolean; onClose: ()
       setError('')
       onClose()
     } catch (e) {
-      setError('Impossible de créer le groupe.')
+      setError(t('group.createFailed'))
     }
   }
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center bg-black/60 p-0 sm:p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-sm rounded-2xl border border-white/10 bg-zinc-900/95 p-5 space-y-4"
+        className="w-full sm:max-w-sm rounded-t-3xl sm:rounded-2xl border border-white/10 bg-zinc-900/95 p-5 space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-lg font-semibold text-white">Nouveau groupe</h3>
+        <h3 className="text-lg font-semibold text-white">{t('group.newTitle')}</h3>
         <GlassInput
-          placeholder="Nom du groupe"
+          placeholder={t('group.namePlaceholder')}
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
@@ -79,16 +81,16 @@ export function CreateGroupModal({ open, onClose }: { open: boolean; onClose: ()
             </label>
           ))}
           {contacts.length === 0 && (
-            <p className="text-sm text-gray-500">Ajoutez d'abord des contacts.</p>
+            <p className="text-sm text-gray-500">{t('group.noContacts')}</p>
           )}
         </div>
         {error && <p className="text-xs text-rose-400">{error}</p>}
         <div className="flex justify-end gap-2">
           <GlassButton size="sm" onClick={onClose}>
-            Annuler
+            {t('action.cancel')}
           </GlassButton>
           <GlassButton variant="primary" size="sm" onClick={create} disabled={selected.size < 1}>
-            Créer
+            {t('action.create')}
           </GlassButton>
         </div>
       </div>

@@ -89,6 +89,12 @@ export class WSManager {
     }
   }
 
+  // Number of outbound frames waiting for the socket to come back. Surfaced
+  // in the connection banner so users see what will auto-flush on reconnect.
+  getQueuedCount(): number {
+    return this.queue.length
+  }
+
   private auth() {
     // In-memory token only (never localStorage).
     const token = api.getToken()

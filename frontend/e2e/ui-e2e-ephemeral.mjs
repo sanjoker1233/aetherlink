@@ -13,8 +13,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function registerUser(page, name) {
   for (let attempt = 1; attempt <= 5; attempt++) {
-    const createBtn = page.getByRole('button', { name: /Create my encrypted identity/i });
-    await page.getByPlaceholder('Your identity').fill(name);
+    const createBtn = page.getByRole('button', { name: /Créer mon identité chiffrée/i });
+    await page.getByPlaceholder('Votre identité').fill(name);
     await createBtn.click();
     try {
       await createBtn.waitFor({ state: 'detached', timeout: 12000 });
@@ -68,8 +68,8 @@ try {
   ok('Bob authenticated');
 
   step('Alice shares identity');
-  await alice.getByRole('button', { name: 'Settings', exact: true }).click();
-  await alice.getByRole('button', { name: /Share my identity/i }).click();
+  await alice.getByRole('button', { name: 'Réglages', exact: true }).click();
+  await alice.getByRole('button', { name: /Partager mon identité/i }).click();
   const uriEl = alice.locator('p').filter({ hasText: 'cryptm://' }).first();
   await uriEl.waitFor({ timeout: 10000 });
   const aliceURI = (await uriEl.textContent()).trim();
@@ -78,16 +78,16 @@ try {
 
   step('Bob adds Alice');
   await bob.getByRole('button', { name: 'Contacts', exact: true }).click();
-  await bob.getByRole('button', { name: 'Add', exact: true }).click();
-  const linkInput = bob.getByPlaceholder(/Paste the CRYPTMessenger link or fingerprint/i);
+  await bob.getByRole('button', { name: 'Ajouter', exact: true }).click();
+  const linkInput = bob.getByPlaceholder(/Collez le lien ou l'empreinte CRYPTMessenger/i);
   await linkInput.waitFor({ timeout: 10000 });
   await linkInput.fill(aliceURI);
-  await bob.getByRole('button', { name: /Parse & send/i }).click();
-  await bob.getByText(/Contact request sent/i).waitFor({ timeout: 10000 });
+  await bob.getByRole('button', { name: /Analyser et envoyer/i }).click();
+  await bob.getByText(/Demande de contact envoyée/i).waitFor({ timeout: 10000 });
   ok('Bob sent contact request');
 
   step('Alice accepts');
-  const acceptBtns = alice.getByRole('button', { name: 'Accept', exact: true });
+  const acceptBtns = alice.getByRole('button', { name: 'Accepter', exact: true });
   await acceptBtns.first().click();
   await alice.getByText(bobName, { exact: true }).first().waitFor({ timeout: 10000 });
   ok('Alice now sees Bob in contacts');
