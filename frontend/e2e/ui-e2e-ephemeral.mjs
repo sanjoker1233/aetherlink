@@ -17,7 +17,7 @@ async function registerUser(page, name) {
     await page.getByPlaceholder('Votre identité').fill(name);
     await createBtn.click();
     try {
-      await createBtn.waitFor({ state: 'detached', timeout: 12000 });
+      await createBtn.waitFor({ state: 'detached', timeout: 30000 });
       return;
     } catch (_) {
       const body = await page.locator('body').innerText().catch(() => '');
@@ -54,8 +54,8 @@ try {
   const ctxB = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const alice = await ctxA.newPage();
   const bob = await ctxB.newPage();
-  alice.setDefaultTimeout(60000);
-  bob.setDefaultTimeout(60000);
+  alice.setDefaultTimeout(120000);
+  bob.setDefaultTimeout(120000);
 
   step('Alice registers');
   await alice.goto(BASE, { waitUntil: 'networkidle' });

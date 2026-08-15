@@ -190,6 +190,7 @@ export class WSManager {
         // the recipient-encrypted echo overwrite it. Delivery status arrives via
         // message_ack.
         if (isOwn) break
+        await this.ensureConversation(p.conversationId)
         store.addMessage(p.conversationId, {
           id: p.id, conversationId: p.conversationId,
           senderId: p.senderId, content: p.content,
@@ -226,6 +227,7 @@ export class WSManager {
             plainContent = await decryptMessage(encIV, encKey, encContent, store.keyPair.privateKey)
           } catch {}
         }
+        await this.ensureConversation(p.conversationId)
         store.addMessage(p.conversationId, {
           id: p.id, conversationId: p.conversationId,
           senderId: p.senderId, content: p.content,
@@ -521,6 +523,38 @@ export class WSManager {
   }
 
   /** Unsend a message: tell every peer in the conversation to drop it. */
+  // Ensure a conversation exists in the local store. Group (and any
+  // server-created) conversations are only registered for the creator; other
+  // members receive messages for a conversation they don't yet have locally.
+  // Pull the user's conversations from the server and merge in any missing one
+  // so the incoming message can be displayed (and the chat-list preview shows).
+  private async ensureConversation(convId: string) {
+    const store = useStore.getState()
+    if (store.conversations.some((c) => c.id === convId)) return
+    try {
+      const list = await api.listConversations()
+      if (!Array.isArray(list)) return
+      const existing = new Set(store.conversations.map((c) => c.id))
+      for (const c of list) {
+        if (!c || !c.id || existing.has(c.id)) continue
+        const members: string[] = Array.isArray(c.members)
+          ? (c.members as any[]).map(String)
+          : Array.isArray(c.participants)
+            ? (c.participants as any[]).map(String)
+            : []
+        store.addConversation({
+          id: c.id,
+          participants: members,
+          name: c.name || '',
+          unreadCount: 0,
+          encryptionEnabled: true,
+          networkPreference: 'hybrid',
+          updatedAt: c.updatedAt || Date.now(),
+        })
+      }
+    } catch {}
+  }
+
   sendMessageDelete(conversationId: string, messageId: string, recipientId: string) {
     this.send('message_delete', { conversationId, id: messageId, recipientId })
   }

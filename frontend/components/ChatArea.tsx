@@ -247,7 +247,7 @@ export function ChatArea() {
         </div>
       </div>
 
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div ref={scrollRef} onScroll={handleScroll} role="log" aria-live="polite" aria-relevant="additions" aria-label={t('chat.messages')} className="flex-1 overflow-y-auto p-4 space-y-3">
         {loadingOlder && (
           <div className="text-center text-[10px] text-gray-500 py-1">Chargement des messages précédents…</div>
         )}

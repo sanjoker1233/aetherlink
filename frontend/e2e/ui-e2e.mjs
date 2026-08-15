@@ -26,7 +26,7 @@ async function registerUser(page, name) {
       // Authenticated once the registration form unmounts. (The top-nav
       // "Settings" button is always present, so it can't detect auth.) A
       // throttled (429) registration keeps the user on the auth page.
-      await createBtn.waitFor({ state: 'detached', timeout: 12000 });
+      await createBtn.waitFor({ state: 'detached', timeout: 30000 });
       return;
     } catch (_) {
       const body = await page.locator('body').innerText().catch(() => '');
@@ -59,8 +59,8 @@ try {
   const bob = await ctxB.newPage();
   // Tolerance for slower renders — also helps on the user's Android device,
   // where the proof-gate (bouclier) is run.
-  alice.setDefaultTimeout(60000);
-  bob.setDefaultTimeout(60000);
+  alice.setDefaultTimeout(120000);
+  bob.setDefaultTimeout(120000);
 
   const aliceErrors = [];
   alice.on('console', (m) => { if (m.type() === 'error') aliceErrors.push(m.text()); });

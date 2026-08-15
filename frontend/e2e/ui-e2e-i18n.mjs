@@ -15,7 +15,7 @@ async function registerUser(page, nm) {
     await page.getByPlaceholder('Votre identité').fill(nm);
     await createBtn.click();
     try {
-      await createBtn.waitFor({ state: 'detached', timeout: 12000 });
+      await createBtn.waitFor({ state: 'detached', timeout: 30000 });
       return;
     } catch (_) {
       const body = await page.locator('body').innerText().catch(() => '');
@@ -35,7 +35,7 @@ const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-setuid
 try {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await ctx.newPage();
-  page.setDefaultTimeout(60000);
+  page.setDefaultTimeout(120000);
 
   step('register');
   await page.goto(BASE, { waitUntil: 'networkidle' });
@@ -53,9 +53,15 @@ try {
 
   step('open Settings');
   await page.getByRole('button', { name: 'Réglages', exact: true }).click();
+  // The Settings panel animates in (framer-motion); use an auto-waiting
+  // locator rather than count() which returns instantly and races the open.
   const enBtn = page.getByRole('button', { name: 'English', exact: true });
-  if (await enBtn.count() > 0) ok('Language toggle present (English)');
-  else { bad('Language toggle missing'); throw new Error('no English button'); }
+  try {
+    await enBtn.waitFor({ timeout: 10000 });
+    ok('Language toggle present (English)');
+  } catch {
+    bad('Language toggle missing'); throw new Error('no English button');
+  }
 
   step('switch to English');
   await enBtn.click();

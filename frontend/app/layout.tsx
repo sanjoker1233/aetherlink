@@ -1,11 +1,13 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
+import { headers } from 'next/headers'
 import './globals.css'
 import { ParticleBackground } from '@/components/ui/ParticleBackground'
 import { NetworkBar } from '@/components/NetworkBar'
 import { Sidebar } from '@/components/Sidebar'
 import { WSInit } from '@/components/WSInit'
 import { SWRegister } from '@/components/SWRegister'
+import { LangSync } from '@/components/LangSync'
 import { PWAInstall } from '@/components/PWAInstall'
 import { ConnectionBanner } from '@/components/ConnectionBanner'
 import { ContactRequestBadge } from '@/components/ContactRequestBadge'
@@ -31,16 +33,20 @@ export const viewport: Viewport = {
   width: 'device-width', initialScale: 1, themeColor: '#120c0a',
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Per-request CSP nonce (set by middleware on the `x-nonce` request header).
+  // React 19 forwards this `nonce` to every <script> it renders — including
+  // Next's RSC/flight inline scripts — so they satisfy the strict CSP.
+  const nonce = (await headers()).get('x-nonce') ?? undefined
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" nonce={nonce}>
       <body className={`${inter.variable} font-sans`}>
         <ParticleBackground />
         <StoreHydrator />
         <NavSync />
         <WSInit />
         <SWRegister />
-        <PWAInstall />
+        <LangSync />
         <ConnectionBanner />
         <ContactRequestBadge />
         <MessageDetail />

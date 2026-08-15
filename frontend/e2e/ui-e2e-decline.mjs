@@ -3,6 +3,7 @@
 // (WS reconnect). If the server actually handles contact_decline, the pending
 // request was removed server-side and is NOT redelivered after reconnect.
 // If the server LACKS the handler, the pending stays and is redelivered → FAIL.
+// UI strings are French (i18n FR default).
 import pkg from '/root/aetherlink/frontend/node_modules/playwright/index.js';
 const { chromium } = pkg;
 
@@ -34,23 +35,23 @@ try {
 
   step('Carol registers');
   await carol.goto(BASE, { waitUntil: 'networkidle' });
-  await carol.getByPlaceholder('Your identity').fill(carolName);
-  await carol.getByRole('button', { name: /Create my encrypted identity/i }).click();
-  await carol.getByRole('button', { name: 'Settings', exact: true }).waitFor({ timeout: 25000 });
+  await carol.getByPlaceholder('Votre identité').fill(carolName);
+  await carol.getByRole('button', { name: /Créer mon identité chiffrée/i }).click();
+  await carol.getByRole('button', { name: 'Réglages', exact: true }).waitFor({ timeout: 25000 });
   ok('Carol authenticated');
   await sleep(6000);
 
   step('Dave registers');
   await dave.goto(BASE, { waitUntil: 'networkidle' });
-  await dave.getByPlaceholder('Your identity').fill(daveName);
-  await dave.getByRole('button', { name: /Create my encrypted identity/i }).click();
-  await dave.getByRole('button', { name: 'Settings', exact: true }).waitFor({ timeout: 25000 });
+  await dave.getByPlaceholder('Votre identité').fill(daveName);
+  await dave.getByRole('button', { name: /Créer mon identité chiffrée/i }).click();
+  await dave.getByRole('button', { name: 'Réglages', exact: true }).waitFor({ timeout: 25000 });
   ok('Dave authenticated');
   await sleep(6000);
 
   step('Carol shares identity');
-  await carol.getByRole('button', { name: 'Settings', exact: true }).click();
-  await carol.getByRole('button', { name: /Share my identity/i }).click();
+  await carol.getByRole('button', { name: 'Réglages', exact: true }).click();
+  await carol.getByRole('button', { name: /Partager mon identité/i }).click();
   const uriEl = carol.locator('p').filter({ hasText: 'cryptm://' }).first();
   await uriEl.waitFor({ timeout: 10000 });
   const carolURI = (await uriEl.textContent()).trim();
@@ -61,13 +62,13 @@ try {
 
   step('Dave sends contact request to Carol');
   await dave.getByRole('button', { name: 'Contacts', exact: true }).click();
-  await dave.getByRole('button', { name: 'Add', exact: true }).click();
-  const linkInput = dave.getByPlaceholder(/Paste the CRYPTMessenger link or fingerprint/i);
+  await dave.getByRole('button', { name: 'Ajouter', exact: true }).click();
+  const linkInput = dave.getByPlaceholder(/Collez le lien/i);
   await linkInput.waitFor({ timeout: 10000 });
   await linkInput.fill(carolURI);
-  await dave.getByRole('button', { name: /Parse & send/i }).click();
+  await dave.getByRole('button', { name: /Analyser et envoyer/i }).click();
   try {
-    await dave.getByText(/Contact request sent/i).waitFor({ timeout: 10000 });
+    await dave.getByText(/Demande de contact envoyée/i).waitFor({ timeout: 10000 });
     ok('Dave sent contact request');
   } catch (e) {
     bad('Dave add-contact did not confirm');
@@ -75,7 +76,7 @@ try {
   }
 
   step('Carol sees the request');
-  const reqHeader = carol.getByText(/^Contact requests \(\d+\)$/).first();
+  const reqHeader = carol.getByText(/^Demandes de contact \(\d+\)$/).first();
   try {
     await reqHeader.waitFor({ timeout: 8000 });
     const m = (await reqHeader.innerText()).match(/\((\d+)\)/);
@@ -83,32 +84,32 @@ try {
     if (n !== 1) bad(`Carol store has ${n} requests (expected 1)`);
     else ok('Carol sees exactly 1 contact request');
   } catch (e) {
-    bad('Carol did not see "Contact requests" header: ' + e.message);
+    bad('Carol did not see "Demandes de contact" header: ' + e.message);
     throw e;
   }
 
-  step('Carol declines (Refuse)');
-  const refuseBtns = carol.getByRole('button', { name: 'Refuse', exact: true });
+  step('Carol declines (Refuser)');
+  const refuseBtns = carol.getByRole('button', { name: 'Refuser', exact: true });
   if (await refuseBtns.count() < 1) {
-    bad('No Refuse button rendered for Carol');
-    throw new Error('no Refuse button');
+    bad('No Refuser button rendered for Carol');
+    throw new Error('no Refuser button');
   }
-  ok(`Refuse button rendered (${await refuseBtns.count()})`);
+  ok(`Refuser button rendered (${await refuseBtns.count()})`);
   await refuseBtns.first().click();
   await sleep(1500); // let the WS message reach the server
 
   step('Carol reloads (WS reconnect) — pending must NOT be redelivered');
   await carol.goto(BASE, { waitUntil: 'networkidle' });
   // Re-authenticate if needed after reload.
-  const needAuth = await carol.getByPlaceholder('Your identity').count();
+  const needAuth = await carol.getByPlaceholder('Votre identité').count();
   if (needAuth > 0) {
-    await carol.getByPlaceholder('Your identity').fill(carolName);
-    await carol.getByRole('button', { name: /Create my encrypted identity/i }).click();
-    await carol.getByRole('button', { name: 'Settings', exact: true }).waitFor({ timeout: 25000 });
+    await carol.getByPlaceholder('Votre identité').fill(carolName);
+    await carol.getByRole('button', { name: /Créer mon identité chiffrée/i }).click();
+    await carol.getByRole('button', { name: 'Réglages', exact: true }).waitFor({ timeout: 25000 });
   }
   let redelivered = false;
   try {
-    await carol.getByText(/^Contact requests \(\d+\)$/).first().waitFor({ timeout: 8000 });
+    await carol.getByText(/^Demandes de contact \(\d+\)$/).first().waitFor({ timeout: 8000 });
     redelivered = true;
   } catch (_) { /* good — no header means no pending */ }
 

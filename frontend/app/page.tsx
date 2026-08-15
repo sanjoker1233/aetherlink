@@ -1,12 +1,17 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useStore } from '@/lib/store'
 import { ChatList } from '@/components/ChatList'
 import { ChatArea } from '@/components/ChatArea'
-import { ContactsList } from '@/components/ContactsList'
-import { NetworkDashboard } from '@/components/NetworkDashboard'
-import { SettingsPage } from '@/components/SettingsPage'
 import { AuthPage } from '@/components/AuthPage'
+
+// Tab-gated views are not needed on first paint — lazy-load them so the
+// initial route JS (and First Load JS) stays small on mobile/Android.
+const Loading = () => <div className="p-4 text-sm text-gray-500">Chargement…</div>
+const ContactsList = dynamic(() => import('@/components/ContactsList').then((m) => m.ContactsList), { ssr: false, loading: () => <Loading /> })
+const NetworkDashboard = dynamic(() => import('@/components/NetworkDashboard').then((m) => m.NetworkDashboard), { ssr: false, loading: () => <Loading /> })
+const SettingsPage = dynamic(() => import('@/components/SettingsPage').then((m) => m.SettingsPage), { ssr: false, loading: () => <Loading /> })
 
 export default function Home() {
   const { isAuthenticated, activeTab, activeConversationId, hydrated } = useStore()

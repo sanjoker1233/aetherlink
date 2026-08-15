@@ -1,16 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useId } from 'react'
 import { useStore } from '@/lib/store'
 import { useT } from '@/lib/i18n'
 import { api } from '@/lib/api'
 import { GlassInput } from '@/components/ui/GlassInput'
 import { GlassButton } from '@/components/ui/GlassButton'
+import { useDialogA11y } from '@/lib/useDialogA11y'
 import type { Conversation } from '@/lib/types'
 
 export function CreateGroupModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { contacts, addConversation, setActiveConversation, setActiveTab } = useStore()
   const t = useT()
+  const headingId = useId()
+  const dialogRef = useDialogA11y(open, onClose)
   const [name, setName] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [error, setError] = useState('')
@@ -61,10 +64,14 @@ export function CreateGroupModal({ open, onClose }: { open: boolean; onClose: ()
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={headingId}
         className="w-full sm:max-w-sm rounded-t-3xl sm:rounded-2xl border border-white/10 bg-zinc-900/95 p-5 space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-lg font-semibold text-white">{t('group.newTitle')}</h3>
+        <h3 id={headingId} className="text-lg font-semibold text-white">{t('group.newTitle')}</h3>
         <GlassInput
           placeholder={t('group.namePlaceholder')}
           value={name}

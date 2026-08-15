@@ -68,6 +68,7 @@ const fr: Dict = {
   'common.noUserFound': 'Aucun utilisateur trouvé',
   'common.noMsgFound': 'Aucun message trouvé',
   'common.reconnecting': 'Reconnexion… vos messages seront envoyés automatiquement.',
+  'chat.messages': 'Historique des messages',
 }
 
 const en: Dict = {
@@ -126,6 +127,7 @@ const en: Dict = {
   'common.noUserFound': 'No user found',
   'common.noMsgFound': 'No message found',
   'common.reconnecting': 'Reconnecting… your messages will be sent automatically.',
+  'chat.messages': 'Message history',
 }
 
 const dicts: Record<Locale, Dict> = { fr, en }
