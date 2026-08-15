@@ -9,10 +9,11 @@ const BASE='http://localhost:3000', API='http://127.0.0.1:9090';
 const rand=Math.random().toString(36).slice(2,8);
 const n=`PU_${rand}`;
 const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
+const E2E_VP=(()=>{const [w,h]=(process.env.E2E_VIEWPORT||'1280x900').split('x').map(Number);return {width:w||1280,height:h||900};})();
 let fails=0; const step=(s)=>console.log('• '+s); const ok=(s)=>console.log('  ✓ '+s); const bad=(s)=>{console.log('  ✗ '+s);fails++;};
 async function reg(p,name){for(let i=1;i<=5;i++){const b=p.getByRole('button',{name:/Créer mon identité chiffrée/i});await p.getByPlaceholder('Votre identité').fill(name);await b.click();try{await b.waitFor({state:'detached',timeout:12000});return;}catch(_){const body=await p.locator('body').innerText().catch(()=>'');if(/rate-limited/i.test(body)){await sleep(22000);continue;}throw new Error('reg '+body.slice(0,120));}}throw new Error('reg');}
 const browser=await chromium.launch({args:['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu']});
-const context=await browser.newContext({ permissions:['notifications'] });
+const context=await browser.newContext({ viewport:E2E_VP, permissions:['notifications'] });
 const page=await context.newPage();
 let token=null;
 page.on('request',req=>{const h=req.headers()['x-crypt-token'];if(h)token=h;});

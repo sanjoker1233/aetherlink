@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useId } from 'react'
+import { useState, useId, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useStore } from '@/lib/store'
 import { useT } from '@/lib/i18n'
 import { api } from '@/lib/api'
@@ -14,6 +15,8 @@ export function CreateGroupModal({ open, onClose }: { open: boolean; onClose: ()
   const t = useT()
   const headingId = useId()
   const dialogRef = useDialogA11y(open, onClose)
+  const [portalMounted, setPortalMounted] = useState(false)
+  useEffect(() => setPortalMounted(true), [])
   const [name, setName] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [error, setError] = useState('')
@@ -58,9 +61,10 @@ export function CreateGroupModal({ open, onClose }: { open: boolean; onClose: ()
     }
   }
 
-  return (
+  if (!portalMounted) return null
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center bg-black/60 p-0 sm:p-4"
+      className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center bg-black/60 p-0 sm:p-4"
       onClick={onClose}
     >
       <div
@@ -68,7 +72,7 @@ export function CreateGroupModal({ open, onClose }: { open: boolean; onClose: ()
         role="dialog"
         aria-modal="true"
         aria-labelledby={headingId}
-        className="w-full sm:max-w-sm rounded-t-3xl sm:rounded-2xl border border-white/10 bg-zinc-900/95 p-5 space-y-4"
+        className="w-full sm:max-w-sm rounded-t-3xl sm:rounded-2xl border border-white/10 bg-zinc-900/95 p-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] sm:pb-5 space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 id={headingId} className="text-lg font-semibold text-white">{t('group.newTitle')}</h3>
@@ -101,6 +105,7 @@ export function CreateGroupModal({ open, onClose }: { open: boolean; onClose: ()
           </GlassButton>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

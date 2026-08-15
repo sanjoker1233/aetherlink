@@ -1,6 +1,7 @@
 'use client'
 
-import { useId, useState } from 'react'
+import { useId, useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Link, Key, User, AlertCircle, Check } from 'lucide-react'
 import { GlassCard } from '@/components/ui/GlassCard'
@@ -29,6 +30,8 @@ export function AddContactModal({ open, onClose }: Props) {
   const { user } = useStore()
   const headingId = useId()
   const dialogRef = useDialogA11y(open, onClose)
+  const [portalMounted, setPortalMounted] = useState(false)
+  useEffect(() => setPortalMounted(true), [])
 
   const reset = () => {
     setInput(''); setName(''); setFp(''); setError(''); setSuccess('')
@@ -74,12 +77,13 @@ export function AddContactModal({ open, onClose }: Props) {
     await lookupAndSend(name.trim(), fp.trim().toUpperCase(), '')
   }
 
-  return (
+  if (!portalMounted) return null
+  return createPortal(
     <AnimatePresence>
       {open && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm"
           onClick={onClose}
         >
           <motion.div
@@ -92,7 +96,7 @@ export function AddContactModal({ open, onClose }: Props) {
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-md rounded-t-3xl sm:rounded-2xl max-h-[92vh] overflow-y-auto"
           >
-            <GlassCard hover={false} className="p-5 sm:p-6 rounded-t-3xl sm:rounded-2xl">
+            <GlassCard hover={false} className="p-5 sm:p-6 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] sm:pb-6 rounded-t-3xl sm:rounded-2xl">
               <div className="flex items-center justify-between mb-4">
                 <h2 id={headingId} className="text-lg font-semibold neon-text">Ajouter un contact</h2>
                 <button onClick={onClose} aria-label="Close dialog" className="text-gray-400 hover:text-white"><X size={20} /></button>
@@ -179,6 +183,7 @@ export function AddContactModal({ open, onClose }: Props) {
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   )
 }

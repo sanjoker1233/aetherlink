@@ -5,6 +5,8 @@ import pkg from '/root/aetherlink/frontend/node_modules/playwright/index.js';
 const { chromium } = pkg;
 
 const BASE = process.env.E2E_BASE || 'http://localhost:3000';
+const E2E_VP = (() => { const [w, h] = (process.env.E2E_VIEWPORT || '1280x900').split('x').map(Number); return { width: w || 1280, height: h || 900 }; })();
+
 const rand = Math.random().toString(36).slice(2, 8);
 const aliceName = `Eph_Alice_${rand}`;
 const bobName = `Eph_Bob_${rand}`;
@@ -50,8 +52,8 @@ const browser = await chromium.launch({
   args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
 });
 try {
-  const ctxA = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  const ctxB = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const ctxA = await browser.newContext({ viewport: E2E_VP });
+  const ctxB = await browser.newContext({ viewport: E2E_VP });
   const alice = await ctxA.newPage();
   const bob = await ctxB.newPage();
   alice.setDefaultTimeout(120000);

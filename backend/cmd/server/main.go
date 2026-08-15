@@ -581,6 +581,26 @@ func main() {
 					"createdAt": time.Now().UnixMilli(),
 				}
 				store.SaveConversation(conv)
+
+				// Notify offline members (except the creator) of the new group via WebPush.
+				if convType == "group" {
+					gname := body.Name
+					if gname == "" {
+						gname = "sans nom"
+					}
+					for _, m := range members {
+						if m == userID {
+							continue
+						}
+						sub := store.GetPushSubscription(m)
+						if sub == nil {
+							continue
+						}
+						if err := pushService.Send(sub, "Nouveau groupe", "Vous avez ete ajoute au groupe "+gname); err != nil {
+							log.Printf("[push] group invite -> %s failed: %v", m, err)
+						}
+					}
+				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusCreated)
 				json.NewEncoder(w).Encode(conv)
@@ -719,7 +739,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("Content-Security-Policy",
 			"default-src 'self'; "+
 				"script-src 'self' 'nonce-"+nonce+"'; "+
-				"style-src 'self' 'unsafe-inline'; "+
+				"style-src 'self'; "+
 				"img-src 'self' data: blob:; "+
 				"connect-src 'self' ws: wss:; "+
 				"font-src 'self' data:; "+

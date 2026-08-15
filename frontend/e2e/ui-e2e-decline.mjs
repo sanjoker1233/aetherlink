@@ -8,6 +8,8 @@ import pkg from '/root/aetherlink/frontend/node_modules/playwright/index.js';
 const { chromium } = pkg;
 
 const BASE = process.env.E2E_BASE || 'http://localhost:3000';
+const E2E_VP = (() => { const [w, h] = (process.env.E2E_VIEWPORT || '1280x900').split('x').map(Number); return { width: w || 1280, height: h || 900 }; })();
+
 const rand = Math.random().toString(36).slice(2, 8);
 const carolName = `E2E_Carol_${rand}`;
 const daveName = `E2E_Dave_${rand}`;
@@ -23,8 +25,8 @@ const browser = await chromium.launch({
 });
 
 try {
-  const ctxC = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  const ctxD = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const ctxC = await browser.newContext({ viewport: E2E_VP });
+  const ctxD = await browser.newContext({ viewport: E2E_VP });
   const carol = await ctxC.newPage();
   const dave = await ctxD.newPage();
 
