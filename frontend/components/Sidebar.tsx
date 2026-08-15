@@ -19,8 +19,8 @@ import type { TabType } from '@/lib/types'
 const navItems: { id: TabType; label: string; icon: React.ReactNode }[] = [
   { id: 'chats', label: 'Messages', icon: <MessageSquare size={20} /> },
   { id: 'contacts', label: 'Contacts', icon: <Users size={20} /> },
-  { id: 'network', label: 'Network', icon: <Radio size={20} /> },
-  { id: 'settings', label: 'Settings', icon: <Settings size={20} /> },
+  { id: 'network', label: 'Réseau', icon: <Radio size={20} /> },
+  { id: 'settings', label: 'Réglages', icon: <Settings size={20} /> },
 ]
 
 const EXPANDED = 240
@@ -158,7 +158,7 @@ export function Sidebar() {
                   exit={{ opacity: 0 }}
                   className="text-sm text-gray-500"
                 >
-                  Not connected
+                  Non connecté
                 </motion.span>
               )}
             </AnimatePresence>

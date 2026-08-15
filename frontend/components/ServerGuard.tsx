@@ -40,17 +40,17 @@ export function ServerGuard({ children }: { children: React.ReactNode }) {
         >
           <ServerOff size={14} className="text-rose-400 shrink-0" />
           <span className="min-w-0">
-            Server unreachable — working offline. Messages will send when the server is back.
+            Serveur inaccessible — mode hors-ligne actif. Les messages seront envoyés au retour du serveur.
           </span>
           <button
             onClick={check}
             className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20"
           >
-            <RefreshCw size={12} /> Retry
+            <RefreshCw size={12} /> Réessayer
           </button>
           <button
             onClick={() => setDismissed(true)}
-            aria-label="Dismiss offline notice"
+            aria-label="Masquer l'avis hors-ligne"
             className="shrink-0 p-1 rounded-lg hover:bg-white/10"
           >
             <X size={14} />

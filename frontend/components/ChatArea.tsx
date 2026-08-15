@@ -211,7 +211,7 @@ export function ChatArea() {
             <Lock size={40} className="text-amber-400" />
           </motion.div>
           <h2 className="text-xl font-semibold mb-2 neon-text">CRYPTMessenger</h2>
-          <p className="text-[#a3866a] text-sm">RSA-4096 + AES-256-GCM encryption<br/>End-to-end messages</p>
+          <p className="text-[#a3866a] text-sm">Chiffrement RSA-4096 + AES-256-GCM<br/>Messages de bout en bout</p>
         </div>
       </div>
     )
@@ -230,7 +230,7 @@ export function ChatArea() {
             <span className="encryption-badge text-[10px]"><Lock size={10} /> E2EE</span>
           </div>
           <p className="text-xs text-amber-400">
-            {isPeerTyping ? 'typing…' : activeConv?.encryptionEnabled ? 'End-to-end encrypted' : ''}
+            {isPeerTyping ? 'écrit…' : activeConv?.encryptionEnabled ? 'Chiffré de bout en bout' : ''}
           </p>
         </div>
         <div className="relative shrink-0 hidden sm:block">
@@ -238,8 +238,8 @@ export function ChatArea() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search…"
-            aria-label="Search messages"
+            placeholder="Rechercher…"
+            aria-label="Rechercher les messages"
             className="glass-input pl-7 py-1 text-xs w-28 focus:w-44 transition-all"
           />
         </div>
@@ -287,7 +287,7 @@ export function ChatArea() {
                           : 'bg-amber-400/20 text-amber-400'
                       }`}
                       whileTap={{ scale: 0.9 }}
-                      title={isLocked ? 'Decrypt' : 'Hide (encrypt)'}
+                      title={isLocked ? 'Déchiffrer' : 'Masquer (chiffrer)'}
                     >
                       {isLocked ? <Lock size={12} /> : <Unlock size={12} />}
                     </motion.button>
@@ -315,7 +315,7 @@ export function ChatArea() {
                         ? 'bg-amber-400/10 text-amber-400'
                         : 'bg-emerald-500/10 text-emerald-500'
                     }`}>
-                      {isLocked ? 'Encrypted' : 'Decrypted'}
+                      {isLocked ? 'Chiffré' : 'Déchiffré'}
                     </span>
                   </div>
                 )}
@@ -364,12 +364,12 @@ export function ChatArea() {
               aria-label="Message"
               onChange={handleInputChange}
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
-              placeholder="E2E encrypted message..."
+              placeholder="Message chiffré E2E…"
               className="glass-input w-full pr-4 text-base"
             />
           </div>
           <GlassButton type="submit" variant="primary" size="md" icon={<Send size={16} />}>
-            Send
+            Envoyer
           </GlassButton>
         </form>
       </div>

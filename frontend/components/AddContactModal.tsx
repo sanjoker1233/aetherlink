@@ -47,7 +47,7 @@ export function AddContactModal({ open, onClose }: Props) {
       setMode('manual')
       return
     }
-    setError('Unrecognized format. Use a CRYPTMessenger link or a fingerprint.')
+    setError('Format non reconnu. Utilisez un lien CRYPTMessenger ou une empreinte.')
   }
 
   const lookupAndSend = async (displayName: string, fpH: string, targetPubKey: string) => {
@@ -56,20 +56,20 @@ export function AddContactModal({ open, onClose }: Props) {
       if (users && users.length > 0) {
         if (!user) return
         wsManager.sendContactRequest(users[0].userId)
-        setSuccess(`Contact request sent to ${displayName || users[0].displayName}`)
+        setSuccess(`Demande de contact envoyée à ${displayName || users[0].displayName}`)
         setTimeout(() => { reset(); onClose() }, 2000)
       } else {
-        setError('User not found (offline or unknown fingerprint)')
+        setError('Utilisateur introuvable (hors-ligne ou empreinte inconnue)')
       }
     } catch {
-      setError('Search error. Check that the backend is reachable.')
+      setError('Erreur de recherche. Vérifiez que le serveur est joignable.')
     }
   }
 
   const handleManual = async () => {
     setError('')
     if (!fp.trim() || !/^[0-9A-Fa-f]{32}$/.test(fp.trim())) {
-      setError('Invalid fingerprint (32 hex characters)'); return
+      setError('Empreinte invalide (32 caractères hexadécimaux)'); return
     }
     await lookupAndSend(name.trim(), fp.trim().toUpperCase(), '')
   }
@@ -94,14 +94,14 @@ export function AddContactModal({ open, onClose }: Props) {
           >
             <GlassCard hover={false} className="p-5 sm:p-6 rounded-t-3xl sm:rounded-2xl">
               <div className="flex items-center justify-between mb-4">
-                <h2 id={headingId} className="text-lg font-semibold neon-text">Add a contact</h2>
+                <h2 id={headingId} className="text-lg font-semibold neon-text">Ajouter un contact</h2>
                 <button onClick={onClose} aria-label="Close dialog" className="text-gray-400 hover:text-white"><X size={20} /></button>
               </div>
 
               <div className="flex gap-2 mb-4">
                 {([
-                  ['link', 'Link'],
-                  ['manual', 'Manual'],
+                  ['link', 'Lien'],
+                  ['manual', 'Manuel'],
                 ] as [Mode, string][]).map(([m, label]) => (
                   <GlassButton
                     key={m}
@@ -119,7 +119,7 @@ export function AddContactModal({ open, onClose }: Props) {
               {mode === 'link' && (
                 <div className="space-y-3">
                   <GlassInput
-                    placeholder="Paste the CRYPTMessenger link or fingerprint..."
+                    placeholder="Collez le lien ou l'empreinte CRYPTMessenger…"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     icon={<Link size={16} />}
@@ -130,7 +130,7 @@ export function AddContactModal({ open, onClose }: Props) {
                     spellCheck={false}
                   />
                   <GlassButton variant="primary" size="md" className="w-full" onClick={handleParse}>
-                    Parse & send
+                    Analyser et envoyer
                   </GlassButton>
                 </div>
               )}
@@ -138,7 +138,7 @@ export function AddContactModal({ open, onClose }: Props) {
               {mode === 'manual' && (
                 <div className="space-y-3">
                   <GlassInput
-                    placeholder="Contact name (optional)"
+                    placeholder="Nom du contact (facultatif)"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     icon={<User size={16} />}
@@ -148,7 +148,7 @@ export function AddContactModal({ open, onClose }: Props) {
                     spellCheck={false}
                   />
                   <GlassInput
-                    placeholder="Fingerprint (32 hex characters)"
+                    placeholder="Empreinte (32 caractères hexadécimaux)"
                     value={fp}
                     onChange={(e) => setFp(e.target.value.toUpperCase())}
                     icon={<Key size={16} />}
@@ -160,7 +160,7 @@ export function AddContactModal({ open, onClose }: Props) {
                     spellCheck={false}
                   />
                   <GlassButton variant="primary" size="md" className="w-full" onClick={handleManual}>
-                    Search & send
+                    Rechercher et envoyer
                   </GlassButton>
                 </div>
               )}

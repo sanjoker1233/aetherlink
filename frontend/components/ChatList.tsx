@@ -87,7 +87,7 @@ export function ChatList() {
             onClick={() => { setShowSearch(!showSearch); setQuery(''); if (!showSearch) { setMsgMode(false); setMsgQuery('') } }}
             icon={<UserPlus size={14} />}
           >
-            New conversation
+            Nouvelle conversation
           </GlassButton>
           <GlassButton
             variant={msgMode ? 'primary' : 'ghost'} size="sm" className="shrink-0"
@@ -113,9 +113,9 @@ export function ChatList() {
                     autoFocus
                     value={query}
                     type="search"
-                    aria-label="Search users by name or fingerprint"
+                    aria-label="Rechercher des utilisateurs par nom ou empreinte"
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Name or fingerprint..."
+                    placeholder="Nom ou empreinte…"
                     className="glass-input w-full text-base pl-9 pr-8"
                   />
                   {query && (
@@ -133,7 +133,7 @@ export function ChatList() {
               )}
 
               {!loading && query && results.length === 0 && (
-                <p className="text-xs text-gray-500 text-center py-3">No user found</p>
+                <p className="text-xs text-gray-500 text-center py-3">Aucun utilisateur trouvé</p>
               )}
 
               {results.length > 0 && (
@@ -184,9 +184,9 @@ export function ChatList() {
                   autoFocus
                   value={msgQuery}
                   type="search"
-                  aria-label="Search messages"
+                  aria-label="Rechercher les messages"
                   onChange={(e) => setMsgQuery(e.target.value)}
-                  placeholder="Search messages…"
+                  placeholder="Rechercher les messages…"
                   className="glass-input w-full text-base pl-9 pr-8"
                 />
                 {msgQuery && (
@@ -196,7 +196,7 @@ export function ChatList() {
                 )}
               </div>
               {msgQuery && msgResults && msgResults.length === 0 && (
-                <p className="text-xs text-gray-500 text-center py-3">No messages found</p>
+                <p className="text-xs text-gray-500 text-center py-3">Aucun message trouvé</p>
               )}
             </motion.div>
           )}
@@ -210,7 +210,7 @@ export function ChatList() {
       {contactRequests.length > 0 && (
         <div className="px-3 py-2 border-b border-amber-400/10 bg-amber-400/5">
           <p className="text-[10px] text-amber-400 font-medium uppercase tracking-wider mb-1.5">
-            Contact requests ({contactRequests.length})
+            Demandes de contact ({contactRequests.length})
           </p>
           <div className="space-y-1">
             {contactRequests.map((req) => (
@@ -221,7 +221,7 @@ export function ChatList() {
                   <p className="text-[9px] text-gray-500 font-mono truncate">{req.fromFingerprint}</p>
                 </div>
                 <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-400/15 text-amber-400 shrink-0">
-                  Pending
+                  En attente
                 </span>
               </div>
             ))}
@@ -234,8 +234,8 @@ export function ChatList() {
         {conversations.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <MessageSquare size={32} className="text-gray-600 mb-3" />
-            <p className="text-sm text-gray-500">No conversation</p>
-            <p className="text-xs text-gray-600 mt-1">Search for a user to start</p>
+            <p className="text-sm text-gray-500">Aucune conversation</p>
+            <p className="text-xs text-gray-600 mt-1">Recherchez un utilisateur pour commencer</p>
           </div>
         )}
         {(msgMode && msgQuery.trim())
@@ -253,7 +253,7 @@ export function ChatList() {
                   <span className="text-sm font-medium truncate">{conv.name}</span>
                   {conv.encryptionEnabled && <Lock size={10} className="text-neon-cyan shrink-0" />}
                 </div>
-                <p className="text-xs text-gray-500 truncate mt-0.5">{snippet || 'New conversation'}</p>
+                <p className="text-xs text-gray-500 truncate mt-0.5">{snippet || 'Nouvelle conversation'}</p>
               </div>
             </motion.button>
           ))
@@ -281,7 +281,7 @@ export function ChatList() {
                 {typing[conv.id] ? (
                   <p className="text-xs text-neon-cyan truncate mt-0.5 animate-pulse">typing…</p>
                 ) : (
-                  <p className="text-xs text-gray-500 truncate mt-0.5">{conv.lastMessage?.content || 'New conversation'}</p>
+                  <p className="text-xs text-gray-500 truncate mt-0.5">{conv.lastMessage?.content || 'Nouvelle conversation'}</p>
                 )}
               </div>
             </motion.button>

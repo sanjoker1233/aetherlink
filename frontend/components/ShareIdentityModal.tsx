@@ -84,7 +84,7 @@ export function ShareIdentityModal({ open, onClose }: Props) {
             <GlassCard hover={false} className="p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 id={headingId} className="text-lg font-semibold neon-text flex items-center gap-2">
-                  <QrCode size={18} /> Share my identity
+                  <QrCode size={18} /> Partager mon identité
                 </h2>
                 <button onClick={onClose} aria-label="Close dialog" className="text-gray-400 hover:text-white">
                   <X size={20} />
@@ -103,23 +103,23 @@ export function ShareIdentityModal({ open, onClose }: Props) {
               </div>
 
               <div className="glass-panel p-3 mb-4">
-                <p className="text-[10px] text-gray-500 mb-1">Fingerprint</p>
+                <p className="text-[10px] text-gray-500 mb-1">Empreinte</p>
                 <p className="text-sm font-mono text-amber-400 break-all">
                   {keyPair?.fingerprint || ''}
                 </p>
               </div>
 
               <div className="glass-panel p-3 mb-4 max-h-32 overflow-y-auto">
-                <p className="text-[10px] text-gray-500 mb-1">Invite link</p>
+                <p className="text-[10px] text-gray-500 mb-1">Lien d'invitation</p>
                 <p className="text-xs text-gray-400 break-all font-mono">{uri}</p>
               </div>
 
               <div className="flex gap-2">
                 <GlassButton variant="primary" size="sm" onClick={handleShare} className="flex-1" icon={<Share2 size={14} />}>
-                  Share
+                  Partager
                 </GlassButton>
                 <GlassButton variant="default" size="sm" onClick={handleCopy} className="flex-1" icon={copied ? <Check size={14} className="text-neon-green" /> : <Copy size={14} />}>
-                  {copied ? 'Copied!' : 'Copy'}
+                  {copied ? 'Copié !' : 'Copier'}
                 </GlassButton>
                 <GlassButton variant="ghost" size="sm" onClick={handleDownload} icon={<Download size={14} />}>
                   QR

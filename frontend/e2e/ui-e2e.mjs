@@ -19,8 +19,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // rate-limiter is shared per-IP across runs).
 async function registerUser(page, name) {
   for (let attempt = 1; attempt <= 5; attempt++) {
-    const createBtn = page.getByRole('button', { name: /Create my encrypted identity/i });
-    await page.getByPlaceholder('Your identity').fill(name);
+    const createBtn = page.getByRole('button', { name: /Créer mon identité chiffrée/i });
+    await page.getByPlaceholder('Votre identité').fill(name);
     await createBtn.click();
     try {
       // Authenticated once the registration form unmounts. (The top-nav
@@ -85,9 +85,9 @@ try {
 
   // ---------- Alice shares identity, capture URI ----------
   step('Alice shares identity');
-  await alice.getByRole('button', { name: 'Settings', exact: true }).click();
+  await alice.getByRole('button', { name: 'Réglages', exact: true }).click();
   try {
-    await alice.getByRole('button', { name: /Share my identity/i }).click();
+    await alice.getByRole('button', { name: /Partager mon identité/i }).click();
   } catch (e) {
     const txt = await alice.locator('body').innerText().catch(() => '(no body)');
     await alice.screenshot({ path: '/tmp/e2e_share_fail.png' }).catch(() => {});
@@ -105,13 +105,13 @@ try {
   // ---------- Bob adds Alice ----------
   step('Bob adds Alice via identity link');
   await bob.getByRole('button', { name: 'Contacts', exact: true }).click();
-  await bob.getByRole('button', { name: 'Add', exact: true }).click();
-  const linkInput = bob.getByPlaceholder(/Paste the CRYPTMessenger link or fingerprint/i);
+  await bob.getByRole('button', { name: 'Ajouter', exact: true }).click();
+  const linkInput = bob.getByPlaceholder(/Collez le lien ou l'empreinte CRYPTMessenger/i);
   await linkInput.waitFor({ timeout: 10000 });
   await linkInput.fill(aliceURI);
-  await bob.getByRole('button', { name: /Parse & send/i }).click();
+  await bob.getByRole('button', { name: /Analyser et envoyer/i }).click();
   try {
-    await bob.getByText(/Contact request sent/i).waitFor({ timeout: 10000 });
+    await bob.getByText(/Demande de contact envoyée/i).waitFor({ timeout: 10000 });
     ok('Bob sent contact request');
   } catch (e) {
     const dialog = bob.locator('[role="dialog"]').first();
@@ -128,7 +128,7 @@ try {
   // request. The real dedup guarantee lives in the store: the sidebar header
   // renders "Contact requests (N)" from contactRequests.length. Assert N===1
   // (no duplicate contact_request from WS replay) rather than button count.
-  const reqHeader = alice.getByText(/^Contact requests \(\d+\)$/).first();
+  const reqHeader = alice.getByText(/^Demandes de contact \(\d+\)$/).first();
   try {
     await reqHeader.waitFor({ timeout: 8000 });
     const m = (await reqHeader.innerText()).match(/\((\d+)\)/);
@@ -140,7 +140,7 @@ try {
     // requiring at least one Accept button so the flow still proceeds.
     bad('Could not find "Contact requests (N)" header: ' + e.message);
   }
-  const acceptBtns = alice.getByRole('button', { name: 'Accept', exact: true });
+  const acceptBtns = alice.getByRole('button', { name: 'Accepter', exact: true });
   if (await acceptBtns.count() < 1) {
     bad('No Accept button rendered');
     throw new Error('no Accept button');

@@ -27,7 +27,7 @@ export function CreateGroupModal({ open, onClose }: { open: boolean; onClose: ()
   const create = async () => {
     const members = Array.from(selected)
     if (members.length < 1) {
-      setError('Pick at least one contact.')
+      setError('Sélectionnez au moins un contact.')
       return
     }
     try {
@@ -49,7 +49,7 @@ export function CreateGroupModal({ open, onClose }: { open: boolean; onClose: ()
       setError('')
       onClose()
     } catch (e) {
-      setError('Could not create group.')
+      setError('Impossible de créer le groupe.')
     }
   }
 
@@ -62,9 +62,9 @@ export function CreateGroupModal({ open, onClose }: { open: boolean; onClose: ()
         className="w-full max-w-sm rounded-2xl border border-white/10 bg-zinc-900/95 p-5 space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-lg font-semibold text-white">New group</h3>
+        <h3 className="text-lg font-semibold text-white">Nouveau groupe</h3>
         <GlassInput
-          placeholder="Group name"
+          placeholder="Nom du groupe"
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
@@ -79,16 +79,16 @@ export function CreateGroupModal({ open, onClose }: { open: boolean; onClose: ()
             </label>
           ))}
           {contacts.length === 0 && (
-            <p className="text-sm text-gray-500">Add contacts first.</p>
+            <p className="text-sm text-gray-500">Ajoutez d'abord des contacts.</p>
           )}
         </div>
         {error && <p className="text-xs text-rose-400">{error}</p>}
         <div className="flex justify-end gap-2">
           <GlassButton size="sm" onClick={onClose}>
-            Cancel
+            Annuler
           </GlassButton>
           <GlassButton variant="primary" size="sm" onClick={create} disabled={selected.size < 1}>
-            Create
+            Créer
           </GlassButton>
         </div>
       </div>

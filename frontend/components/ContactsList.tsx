@@ -56,17 +56,17 @@ export function ContactsList() {
       <div className="flex items-center gap-2">
         <div className="flex-1">
           <GlassInput
-            placeholder="Search..."
+            placeholder="Rechercher…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             icon={<Search size={16} />}
           />
         </div>
         <GlassButton variant="primary" size="sm" onClick={() => setShowAdd(true)} icon={<UserPlus size={16} />}>
-          Add
+          Ajouter
         </GlassButton>
         <GlassButton variant="primary" size="sm" onClick={() => setShowGroup(true)} icon={<Users size={16} />}>
-          Group
+          Groupe
         </GlassButton>
       </div>
 
@@ -77,12 +77,12 @@ export function ContactsList() {
       {contacts.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <User size={40} className="text-gray-600 mb-4" />
-          <p className="text-sm text-gray-400 mb-1">No contact</p>
+          <p className="text-sm text-gray-400 mb-1">Aucun contact</p>
           <p className="text-xs text-gray-600 mb-4">
-            Add a contact via QR code, link or fingerprint
+            Ajoutez un contact via un QR code, un lien ou une empreinte
           </p>
           <GlassButton variant="primary" size="sm" onClick={() => setShowAdd(true)} icon={<UserPlus size={14} />}>
-            Add a contact
+            Ajouter un contact
           </GlassButton>
         </div>
       )}
@@ -109,37 +109,37 @@ export function ContactsList() {
                 }`}>{contact.status || 'offline'}</span>
               </div>
               <p className="text-xs text-gray-500">
-                Fingerprint: {contact.publicKeyFingerprint || '—'}
+                Empreinte : {contact.publicKeyFingerprint || '—'}
               </p>
             </div>
             <button
               onClick={(e) => { e.stopPropagation(); setVerifyContact(contact) }}
               className="p-2.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0 text-amber-400 hover:text-amber-300 rounded-lg hover:bg-white/10"
-              title="Verify safety number"
-              aria-label="Verify safety number"
+              title="Vérifier le numéro de sécurité"
+              aria-label="Vérifier le numéro de sécurité"
             >
               <ShieldCheck size={14} />
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); handleStartChat(contact) }}
               className="glass-button p-2.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0"
-              title="Start a conversation"
-              aria-label="Start a conversation"
+              title="Démarrer une conversation"
+              aria-label="Démarrer une conversation"
             >
               <MessageSquare size={14} />
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); removeContact(contact.userId) }}
               className="p-2.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0 text-gray-500 hover:text-rose-400 rounded-lg hover:bg-white/10"
-              title="Delete contact"
-              aria-label="Delete contact"
+              title="Supprimer le contact"
+              aria-label="Supprimer le contact"
             >
               <Trash2 size={14} />
             </button>
           </motion.div>
         ))}
         {contacts.length > 0 && filtered.length === 0 && (
-          <p className="text-center text-gray-500 py-8 text-sm">No result</p>
+          <p className="text-center text-gray-500 py-8 text-sm">Aucun résultat</p>
         )}
       </div>
     </div>

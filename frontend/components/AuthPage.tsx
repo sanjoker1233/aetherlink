@@ -32,7 +32,7 @@ export function AuthPage() {
 
   const handleRegister = async () => {
     const name = displayName.trim()
-    if (!name) { setError('Please enter a name'); return }
+    if (!name) { setError('Veuillez saisir un nom'); return }
     setIsLoading(true); setError('')
 
     try {
@@ -68,7 +68,7 @@ export function AuthPage() {
       // state: there is no server token, so later authenticated calls (contact
       // lookup, message history) would fail with 401. Ask them to retry instead.
       if (!registered && registerStatus === 429) {
-        setError('Registration is rate-limited. Please wait a few seconds and try again.')
+        setError("L'inscription est limitée. Veuillez patienter quelques secondes et réessayer.")
         setIsLoading(false)
         return
       }
@@ -98,18 +98,18 @@ export function AuthPage() {
         if (reason) {
           setError(reason.charAt(0).toUpperCase() + reason.slice(1))
         } else {
-          setError("Account created locally. Backend unreachable — others won't be able to find you while the server is offline.")
+          setError("Compte créé localement. Serveur inaccessible — les autres ne pourront pas vous trouver tant que le serveur est hors ligne.")
         }
       }
     } catch (err) {
-      setError('Error generating keys')
+      setError('Erreur lors de la génération des clés')
     }
     setIsLoading(false)
   }
 
   const handleLogin = async () => {
     const stored = localStorage.getItem('crypt_identity')
-    if (!stored) { setError('No identity found. Create an account.'); return }
+    if (!stored) { setError('Aucune identité trouvée. Créez un compte.'); return }
     try {
       const parsed = JSON.parse(stored)
       const user = parsed.user
@@ -117,7 +117,7 @@ export function AuthPage() {
       const fp = parsed.fingerprint || user?.publicKeyFingerprint || ''
       const privateKey = await loadPrivateKey()
       if (!privateKey) {
-        setError('Private key not found on this device. Create a new identity.')
+        setError('Clé privée introuvable sur cet appareil. Créez une nouvelle identité.')
         return
       }
 
@@ -137,21 +137,21 @@ export function AuthPage() {
       setUser(user)
       setAuthenticated(true)
     } catch {
-      setError('Corrupt identity data')
+      setError('Données d\'identité corrompues')
     }
   }
 
   const handleRestore = async () => {
-    if (!restoreFile) { setError('Choose a backup file first'); return }
+    if (!restoreFile) { setError('Choisissez d\'abord un fichier de sauvegarde'); return }
     setIsLoading(true); setError(''); setRestoreStatus('')
     try {
       const text = await restoreFile.text()
       const res = await restoreFromBackup(text, restorePass)
       setRestoreStatus(res.offline
-        ? 'Restored locally. Server unreachable — history is readable, but you are not discoverable until it returns.'
-        : 'Identity and history restored.')
+        ? 'Restauré localement. Serveur inaccessible — l\'historique est lisible, mais vous n\'êtes pas joignable tant qu\'il revient.'
+        : 'Identité et historique restaurés.')
     } catch (e: any) {
-      setError(e?.message || 'Restore failed')
+      setError(e?.message || 'Échec de la restauration')
     }
     setIsLoading(false)
   }
@@ -174,12 +174,12 @@ export function AuthPage() {
             </motion.div>
             <h1 className="text-2xl font-bold neon-text mb-1">CRYPTMessenger</h1>
             <p className="text-sm text-gray-400">
-              End-to-end encrypted communication
+              Communication chiffrée de bout en bout
             </p>
             {backendOk !== null && (
               <div className={`flex items-center justify-center gap-1.5 mt-2 ${backendOk ? 'text-emerald-500' : 'text-rose-500'}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${backendOk ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                <span className="text-[10px]">{backendOk ? 'Server connected' : 'Server unreachable'}</span>
+                <span className="text-[10px]">{backendOk ? 'Serveur connecté' : 'Serveur inaccessible'}</span>
               </div>
             )}
           </div>
@@ -189,15 +189,15 @@ export function AuthPage() {
               <User size={14} /> Nouveau
             </GlassButton>
             <GlassButton variant={mode === 'login' ? 'primary' : 'ghost'} size="sm" onClick={() => setMode('login')} className="flex-1">
-              <Key size={14} /> Sign in
+              <Key size={14} /> Se connecter
             </GlassButton>
           </div>
 
           {mode === 'register' ? (
             <div className="space-y-4">
               <GlassInput
-                label="Username"
-                placeholder="Your identity"
+                label="Nom d'utilisateur"
+                placeholder="Votre identité"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleRegister()}
@@ -206,30 +206,30 @@ export function AuthPage() {
               />
               <div className="glass-panel p-3 text-xs text-gray-400 flex items-start gap-2">
                 <Shield size={14} className="text-amber-400 shrink-0 mt-0.5" />
-                <p>RSA-4096 key generated locally. Your private key never leaves this device.</p>
+                <p>Clé RSA-4096 générée localement. Votre clé privée ne quitte jamais cet appareil.</p>
               </div>
               <div className="glass-panel p-3 text-xs text-gray-400 flex items-start gap-2">
                 <Wifi size={14} className="text-amber-400 shrink-0 mt-0.5" />
-                <p>Offline mode available. Messages are encrypted and stored locally.</p>
+                <p>Mode hors-ligne disponible. Les messages sont chiffrés et stockés localement.</p>
               </div>
               <GlassButton variant="primary" size="lg" onClick={handleRegister} disabled={isLoading} className="w-full">
-                {isLoading ? 'Generating keys...' : 'Create my encrypted identity'}
+                {isLoading ? 'Génération des clés…' : 'Créer mon identité chiffrée'}
               </GlassButton>
             </div>
           ) : (
             <div className="space-y-4">
               <GlassButton variant="primary" size="lg" onClick={handleLogin} className="w-full">
-                <Key size={16} /> Sign in with my keys
+                <Key size={16} /> Me connecter avec mes clés
               </GlassButton>
               <GlassButton variant="ghost" size="sm" onClick={() => setRestoreOpen((v) => !v)} className="w-full">
-                <Download size={14} /> Restore from backup
+                <Download size={14} /> Restaurer depuis une sauvegarde
               </GlassButton>
               {restoreOpen && (
                 <div className="glass-panel p-3 space-y-3">
                   <input type="file" accept="application/json,.json" onChange={(e) => setRestoreFile(e.target.files?.[0] || null)} className="text-xs text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-amber-400/20 file:text-amber-400 file:text-xs" />
-                  <input type="password" placeholder="Backup passphrase" value={restorePass} onChange={(e) => setRestorePass(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-gray-200 outline-none focus:border-amber-400/40" />
+                  <input type="password" placeholder="Phrase secrète de sauvegarde" value={restorePass} onChange={(e) => setRestorePass(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-gray-200 outline-none focus:border-amber-400/40" />
                   <GlassButton variant="primary" size="sm" onClick={handleRestore} disabled={isLoading} className="w-full">
-                    {isLoading ? 'Restoring...' : 'Restore identity'}
+                    {isLoading ? 'Restauration…' : 'Restaurer l\'identité'}
                   </GlassButton>
                   {restoreStatus && <p className="text-[11px] text-emerald-400">{restoreStatus}</p>}
                   {error && <p className="text-[11px] text-rose-400">{error}</p>}
@@ -240,7 +240,7 @@ export function AuthPage() {
           )}
 
             <div className="mt-6 pt-4 border-t border-white/5 text-center">
-            <p className="text-[10px] text-gray-600">RSA-4096 + AES-256-GCM encryption • E2EE</p>
+            <p className="text-[10px] text-gray-600">Chiffrement RSA-4096 + AES-256-GCM • E2EE</p>
           </div>
         </GlassCard>
       </motion.div>

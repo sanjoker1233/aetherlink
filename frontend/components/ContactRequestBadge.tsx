@@ -36,10 +36,10 @@ export function ContactRequestBadge() {
                     </button>
                   </div>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    Fingerprint: {req.fromFingerprint}
+                    Empreinte : {req.fromFingerprint}
                   </p>
                   <p className="text-[10px] text-gray-500 mt-0.5">
-                    Wants to add you as a contact
+                    Souhaite vous ajouter comme contact
                   </p>
                   <div className="flex gap-2 mt-3">
                     <GlassButton
@@ -50,7 +50,7 @@ export function ContactRequestBadge() {
                       }}
                       icon={<Check size={12} />}
                     >
-                      Accept
+                      Accepter
                     </GlassButton>
                     <GlassButton
                       variant="ghost"
@@ -58,7 +58,7 @@ export function ContactRequestBadge() {
                       onClick={() => wsManager.declineContact(req)}
                       icon={<X size={12} />}
                     >
-                      Refuse
+                      Refuser
                     </GlassButton>
                   </div>
                 </div>
