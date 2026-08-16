@@ -1,24 +1,37 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ServerOff, RefreshCw, X } from 'lucide-react'
+import { ServerOff, RefreshCw, Loader2 } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import { api } from '@/lib/api'
 
 /**
- * Offline-first: the app is ALWAYS rendered (local key generation, reading
- * cached conversations, etc. must work without a server). When /health fails
- * we surface a dismissible banner instead of blocking the whole UI.
+ * Server-gated access.
+ *
+ * aetherlink is a server-dependent messenger: identity registration, contact
+ * requests, message relay and the websocket all live on the backend. When the
+ * backend is unreachable we must NOT render a broken half-loaded UI — instead we
+ * block the whole app with a full-screen "server unavailable" screen and a
+ * Retry control. The user only reaches the app once /health confirms the
+ * server is reachable.
+ *
+ * States:
+ *   serverAvailable === null  -> status unknown (initial load / in-flight): show
+ *                                 a "connecting" splash so we never flash content.
+ *   serverAvailable === false -> backend confirmed down: block the app entirely.
+ *   serverAvailable === true  -> backend reachable: render the app.
  */
 export function ServerGuard({ children }: { children: React.ReactNode }) {
   const serverAvailable = useStore((s) => s.serverAvailable)
   const setServerAvailable = useStore((s) => s.setServerAvailable)
-  const [dismissed, setDismissed] = useState(false)
+  const [checking, setChecking] = useState(false)
 
   const check = () => {
+    setChecking(true)
     api.health()
       .then(() => setServerAvailable(true))
       .catch(() => setServerAvailable(false))
+      .finally(() => setChecking(false))
   }
 
   useEffect(() => {
@@ -28,36 +41,71 @@ export function ServerGuard({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const offline = serverAvailable === false
+  if (serverAvailable === null) {
+    return (
+      <GateScreen
+        icon="loading"
+        title="Connexion au serveur…"
+        hint="Vérification de la disponibilité du serveur."
+        checking={checking}
+      />
+    )
+  }
 
+  if (serverAvailable === false) {
+    return (
+      <GateScreen
+        icon="off"
+        title="Serveur indisponible"
+        hint="L'application nécessite le serveur pour fonctionner. Vérifiez votre connexion, puis réessayez."
+        checking={checking}
+        onRetry={check}
+      />
+    )
+  }
+
+  return <>{children}</>
+}
+
+function GateScreen({
+  icon,
+  title,
+  hint,
+  checking,
+  onRetry,
+}: {
+  icon: 'loading' | 'off'
+  title: string
+  hint: string
+  checking: boolean
+  onRetry?: () => void
+}) {
   return (
-    <>
-      {offline && !dismissed && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="fixed top-0 inset-x-0 z-[100] flex items-center justify-center gap-3 px-4 py-2 bg-rose-950/90 border-b border-rose-500/30 text-xs text-rose-100 backdrop-blur"
+    <div
+      role="alertdialog"
+      aria-busy={icon === 'loading'}
+      aria-live="assertive"
+      className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-4 px-6 text-center bg-[#120c0a] text-rose-100"
+    >
+      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-950/60 border border-rose-500/30">
+        {icon === 'loading' ? (
+          <Loader2 size={30} className="animate-spin text-rose-300" />
+        ) : (
+          <ServerOff size={30} className="text-rose-400" />
+        )}
+      </div>
+      <h1 className="text-lg font-semibold">{title}</h1>
+      <p className="max-w-xs text-sm text-rose-200/70">{hint}</p>
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          disabled={checking}
+          className="mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-50 text-sm"
         >
-          <ServerOff size={14} className="text-rose-400 shrink-0" />
-          <span className="min-w-0">
-            Serveur inaccessible — mode hors-ligne actif. Les messages seront envoyés au retour du serveur.
-          </span>
-          <button
-            onClick={check}
-            className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20"
-          >
-            <RefreshCw size={12} /> Réessayer
-          </button>
-          <button
-            onClick={() => setDismissed(true)}
-            aria-label="Masquer l'avis hors-ligne"
-            className="shrink-0 p-1 rounded-lg hover:bg-white/10"
-          >
-            <X size={14} />
-          </button>
-        </div>
+          <RefreshCw size={14} className={checking ? 'animate-spin' : ''} />
+          {checking ? 'Vérification…' : 'Réessayer'}
+        </button>
       )}
-      {children}
-    </>
+    </div>
   )
 }
