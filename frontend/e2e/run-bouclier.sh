@@ -9,8 +9,9 @@
 #   - binaire backend buildé dans backend/ (sinon ce script le build)
 #   - backend/.jwt.env présent (secret JWT)
 #
-# La suite ui-e2e-serverdown.mjs tourne AVEC le backend VOLONTAIREMENT ÉTEINT
-# (on le tue juste avant) pour prouver le blocage côté serveur (ServerGuard).
+# Note: ui-e2e-serverdown.mjs démarre avec le backend UP (pour seeder le cache
+# d'une conversation), puis coupe le backend lui-même et vérifie la lecture
+# hors-ligne. Les autres suites utilisent un backend relancé frais.
 set -u
 cd /root/aetherlink/backend
 set -a; . ./.jwt.env; set +a
@@ -29,7 +30,7 @@ if [ ! -x "$BIN" ]; then
 fi
 
 start_backend() {
-  pkill -f 'cryptmessenger-server' 2>/dev/null || true
+  pkill -f 'cryptmessenger[-]server' 2>/dev/null || true
   sleep 1
   rm -rf "$DATA_DIR"
   mkdir -p "$DATA_DIR"
@@ -46,25 +47,13 @@ start_backend() {
 overall=0
 for s in $SUITES; do
   echo "=== SUITE: $s ==="
-  if [ "$s" = "ui-e2e-serverdown.mjs" ]; then
-    # Server-down suite: backend MUST be off so the gate blocks.
-    pkill -f 'cryptmessenger-server' 2>/dev/null || true
-    sleep 1
-    echo "  backend forced DOWN for server-down gate test"
-    pushd /root/aetherlink/frontend >/dev/null
-    E2E_BASE="$FE" E2E_API="$API" E2E_VIEWPORT="1280x900" node "e2e/$s"
-    rc=$?
-    popd >/dev/null
-    if [ $rc -eq 0 ]; then echo "  >> $s PASS"; else echo "  >> $s FAIL (rc=$rc)"; overall=1; fi
-    continue
-  fi
   start_backend || { overall=1; continue; }
   pushd /root/aetherlink/frontend >/dev/null
   E2E_BASE="$FE" E2E_API="$API" E2E_VIEWPORT="1280x900" node "e2e/$s"
   rc=$?
   popd >/dev/null
   if [ $rc -eq 0 ]; then echo "  >> $s PASS"; else echo "  >> $s FAIL (rc=$rc)"; overall=1; fi
-  pkill -f 'cryptmessenger-server' 2>/dev/null || true
+  pkill -f 'cryptmessenger[-]server' 2>/dev/null || true
   sleep 1
 done
 
