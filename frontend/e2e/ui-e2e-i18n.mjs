@@ -46,9 +46,10 @@ try {
   // before isAuthenticated flips true (SettingsPage only renders then).
   // Authenticated signal = the nav "Messages" button, scoped to
   // role=navigation so it's unambiguous. The desktop Sidebar and mobile
-  // BottomNav both render it inside a <nav> (mutually exclusive by viewport),
-  // while a separate ghost "Messages" GlassButton also exists in <main>
-  // (no <nav>) once authed and must be excluded.
+  // BottomNav both render it inside a <nav> (mutually exclusive by viewport).
+  // Historically the FR "action.searchMessages" translation was also "Messages",
+  // creating a duplicate nav-label GlassButton in <main> (the chats search
+  // control); that's fixed in lib/i18n.ts, but we keep the nav scope as a safeguard.
   await page.getByRole('navigation').getByRole('button', { name: 'Messages', exact: true }).waitFor({ timeout: 30000 });
   ok('authenticated');
 

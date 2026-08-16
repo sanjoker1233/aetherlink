@@ -20,7 +20,7 @@ const fr: Dict = {
 
   'action.newChat': 'Nouvelle conversation',
   'action.newGroup': 'Nouveau groupe',
-  'action.searchMessages': 'Messages',
+  'action.searchMessages': 'Rechercher',
   'action.markAllRead': 'Tout marquer comme lu',
   'action.send': 'Envoyer',
   'action.cancel': 'Annuler',

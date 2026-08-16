@@ -65,8 +65,10 @@ async function acceptAll(page) {
 async function checkRecipient(page, convName, msg) {
   // Click the nav "Messages" tab, scoped to role=navigation so it's
   // unambiguous: the desktop Sidebar and mobile BottomNav both render it
-  // inside a <nav> (mutually exclusive by viewport), while a separate ghost
-  // "Messages" GlassButton in <main> (no <nav>) is excluded.
+  // inside a <nav> (mutually exclusive by viewport). Historically the FR
+  // "action.searchMessages" translation was also "Messages", creating a
+  // duplicate nav-label GlassButton in <main> (the chats search control);
+  // that's fixed in lib/i18n.ts, but we keep the nav scope as a safeguard.
   await page.getByRole('navigation').getByRole('button', { name: 'Messages', exact: true }).click();
   await page.getByText(convName, { exact: false }).first().waitFor({ timeout: 15000 });
   await page.getByText(convName, { exact: false }).first().click();
