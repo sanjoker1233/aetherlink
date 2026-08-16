@@ -44,12 +44,17 @@ try {
   await registerUser(page, name);
   // Registration detaches the form, but the WS auth/session needs a moment
   // before isAuthenticated flips true (SettingsPage only renders then).
-  await page.getByText(name, { exact: true }).first().waitFor({ timeout: 30000 });
+  // Authenticated signal = the nav "Messages" button, scoped to
+  // role=navigation so it's unambiguous. The desktop Sidebar and mobile
+  // BottomNav both render it inside a <nav> (mutually exclusive by viewport),
+  // while a separate ghost "Messages" GlassButton also exists in <main>
+  // (no <nav>) once authed and must be excluded.
+  await page.getByRole('navigation').getByRole('button', { name: 'Messages', exact: true }).waitFor({ timeout: 30000 });
   ok('authenticated');
 
   step('FR default');
   // Sidebar is hidden on narrow widths; open wide viewport already 1280 so sidebar shows.
-  const frNav = page.getByRole('button', { name: 'Messages', exact: true });
+  const frNav = page.getByRole('navigation').getByRole('button', { name: 'Messages', exact: true });
   if (await frNav.count() > 0) ok('FR default shows "Messages"');
   else bad('FR default missing "Messages" nav label');
 
@@ -68,17 +73,17 @@ try {
   step('switch to English');
   await enBtn.click();
   await sleep(500);
-  const enNav = page.getByRole('button', { name: 'Chats', exact: true });
+  const enNav = page.getByRole('navigation').getByRole('button', { name: 'Chats', exact: true });
   if (await enNav.count() > 0) ok('EN shows "Chats" after toggle');
   else bad('EN toggle did not switch nav label to "Chats"');
   // Ensure French label is gone.
-  if (await page.getByRole('button', { name: 'Messages', exact: true }).count() > 0)
+  if (await page.getByRole('navigation').getByRole('button', { name: 'Messages', exact: true }).count() > 0)
     bad('FR label "Messages" still present after switching to EN');
 
   step('switch back to French');
   await page.getByRole('button', { name: 'Français', exact: true }).click();
   await sleep(500);
-  if (await page.getByRole('button', { name: 'Messages', exact: true }).count() > 0) ok('Back to FR shows "Messages"');
+  if (await page.getByRole('navigation').getByRole('button', { name: 'Messages', exact: true }).count() > 0) ok('Back to FR shows "Messages"');
   else bad('Toggling back to FR failed');
 
   await ctx.close();

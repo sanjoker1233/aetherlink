@@ -63,7 +63,11 @@ async function acceptAll(page) {
 // in the chat list (ensureConversation pulls it from the server on message
 // arrival), open it, and confirm the message is visible.
 async function checkRecipient(page, convName, msg) {
-  await page.getByRole('button', { name: 'Messages', exact: true }).click();
+  // Click the nav "Messages" tab, scoped to role=navigation so it's
+  // unambiguous: the desktop Sidebar and mobile BottomNav both render it
+  // inside a <nav> (mutually exclusive by viewport), while a separate ghost
+  // "Messages" GlassButton in <main> (no <nav>) is excluded.
+  await page.getByRole('navigation').getByRole('button', { name: 'Messages', exact: true }).click();
   await page.getByText(convName, { exact: false }).first().waitFor({ timeout: 15000 });
   await page.getByText(convName, { exact: false }).first().click();
   await page.getByText(msg, { exact: false }).first().waitFor({ timeout: 15000 });
@@ -91,7 +95,12 @@ try {
   await registerUser(alice, aliceName);
   await registerUser(bob, bobName);
   await registerUser(carol, carolName);
-  await alice.getByText(aliceName, { exact: true }).first().waitFor({ timeout: 30000 });
+  // Authenticated signal = the nav "Messages" button, scoped to
+  // role=navigation. Sidebar (desktop) + BottomNav (mobile) both render it in
+  // a <nav> and are mutually exclusive by viewport; a separate ghost
+  // "Messages" GlassButton in <main> (no <nav>) is excluded so the locator
+  // resolves to exactly one.
+  await alice.getByRole('navigation').getByRole('button', { name: 'Messages', exact: true }).waitFor({ timeout: 30000 });
   ok('all 3 registered');
 
   step('Bob + Carol add Alice (so Alice has them as contacts)');
